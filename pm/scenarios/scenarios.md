@@ -42,12 +42,14 @@ resumes with its remaining minutes intact, so interruptions are lossless; a
 zero-slack board still lands exactly on Fri 17:00. The standup/Slack close
 reactions run in every `pm sim` week.
 
-**PM levers** — the world reacts to Slack (`pm/sim/npc.py`): each person named
-in a message reads it a seeded-random 1–60 minutes later (`_on_slack_send`
-schedules the `slack.read`); on read (`_on_slack_read`) they close their
-`in_review` work, and a "please pick up <KEY>" directive bumps that ticket to
-priority 0 — the level even a free spirit works first, preempting their current
-ticket. These are the levers a PM agent steers with (the agent's only
+**PM levers** — the world reacts to Slack (`pm/sim/npc.py`): a message goes to
+the whole channel, and everyone reads it a seeded-random 1–60 minutes later
+(`_on_slack_send` schedules one `slack.read` per person). Effects land when an
+*addressed* reader reads (`_on_slack_read`): a person named in the body closes
+their `in_review` work, and a "please pick up <KEY>" directive bumps the named
+tickets assigned to that reader to priority 0 — the level even a free spirit
+works first, preempting their current ticket. One message can carry directives
+for several people; each takes effect on its addressee's own read. These are the levers a PM agent steers with (the agent's only
 *action* tool is `send_slack`). In `single_engineer_with_agent`,
 `two_engineers_with_agent`, and `team_no_jira_with_agent` the PM is
 an **LLM** reviewing the run every four sim-hours through those tools — a

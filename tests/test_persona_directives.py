@@ -56,13 +56,14 @@ def test_with_personas_rejects_unknown_member():
 # -- the Slack directive lever --------------------------------------------------
 
 def test_pick_up_directive_bumps_named_issue(tmp_path):
-    # The bump lands when the named person READS the directive, not when it is sent.
+    # The bump lands when the ADDRESSEE reads the directive, not when it is sent.
     env = two_engineers.build(run_id="nudge", root=tmp_path)
     api = JiraApi(JiraRepository(env.store), env.engine)
     task = api.search(project_id=two_engineers.PROJECT_ID, issue_type="task")[0]
-    assert task.priority > 0
+    assert task.priority > 0 and task.assignee_id is not None
 
-    react(env.engine, _read(f"Alice: please pick up {task.id} next"))
+    body = f"{task.assignee_id}: please pick up {task.id} next"
+    react(env.engine, _read(body, reader=task.assignee_id))
     assert api.get_issue(task.id).priority == 0
     env.close()
 
@@ -76,9 +77,10 @@ def test_highlight_without_pick_up_steers_nothing(tmp_path):
     assert api.get_issue(task.id).priority == task.priority
     env.close()
 
-def test_slack_send_schedules_reads_for_named_only_excluding_sender(tmp_path):
-    # A send schedules one delayed read per named person; the sender never reads
-    # their own message, and nothing is bumped at send time.
+def test_slack_send_schedules_reads_for_everyone_but_sender(tmp_path):
+    # A channel send schedules one delayed read per person (the whole channel,
+    # named or not); the sender never reads their own message, and nothing is
+    # bumped at send time.
     import random as _random
 
     env = two_engineers.build(run_id="reads", root=tmp_path)
@@ -86,15 +88,19 @@ def test_slack_send_schedules_reads_for_named_only_excluding_sender(tmp_path):
     task = api.search(project_id=two_engineers.PROJECT_ID, issue_type="task")[0]
 
     react(env.engine, _slack(f"Alice: please pick up {task.id} next"))
-    reads = env.store.db.query_all("SELECT * FROM event WHERE type = 'slack.read'")
-    assert [r["owner_id"] for r in reads] == ["alice"]
+    reads = env.store.db.query_all(
+        "SELECT * FROM event WHERE type = 'slack.read' ORDER BY owner_id")
+    assert [r["owner_id"] for r in reads] == ["alice", "clare"]  # everyone but sender
+    alice_read = next(r for r in reads if r["owner_id"] == "alice")
     delay = _random.Random("42:alice:0").randint(1, 60)
-    assert reads[0]["start_tick"] == delay and 0 < delay <= 60
+    assert alice_read["start_tick"] == delay and 0 < delay <= 60
     assert api.get_issue(task.id).priority == task.priority  # no instant bump
 
     react(env.engine, _slack("alice here, taking a break", sender="alice"))
-    reads = env.store.db.query_all("SELECT * FROM event WHERE type = 'slack.read'")
-    assert len(reads) == 1  # the self-mention scheduled nothing
+    reads = env.store.db.query_all(
+        "SELECT owner_id FROM event WHERE type = 'slack.read' ORDER BY id")
+    # clare still reads alice's message; alice never reads her own
+    assert [r["owner_id"] for r in reads] == ["alice", "clare", "clare"]
     env.close()
 
 

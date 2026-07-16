@@ -50,8 +50,11 @@ PROMPT = (
     "their in-review work, and the exact phrase 'please pick up <TICKET-KEY>' makes "
     "them drop their current ticket and work yours first (the dropped ticket "
     "resumes afterwards). If a high-priority ticket is open and not "
-    "being worked next, post ONE short message using a lever; if nothing needs "
-    "steering, post nothing. Then reply with a one-line summary and no tool call."
+    "being worked next, post at most ONE short message per review — everyone "
+    "reads the channel, so when several people need steering put all the "
+    "directives in that single message rather than sending one each; if nothing "
+    "needs steering, post nothing. Then reply with a one-line summary and no "
+    "tool call."
 )
 
 # alice + clare (the implementers) + the pm agent (the Slack sender). MEMBERS

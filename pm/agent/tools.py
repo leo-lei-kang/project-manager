@@ -83,6 +83,22 @@ class AgentTools:
 
     # -- Jira board ----------------------------------------------------------
 
+    def create_jira_ticket(self, project_id: str, title: str, *,
+                           issue_type: str = "task", estimate_minutes: int = 60,
+                           assignee: str | None = None, priority: int = 2,
+                           description: str = "") -> dict[str, Any]:
+        """Create a Jira issue — e.g. an action item from a meeting transcript.
+
+        A zero-cost board mutation (like all Jira writes, ``action_cost=0``);
+        validation errors (unknown project/assignee, bad type) raise
+        :class:`~pm.exceptions.ToolError`. Returns the created issue.
+        """
+        issue = self.jira.create_issue(
+            project_id, issue_type, title, estimate_minutes=estimate_minutes,
+            assignee=assignee, priority=priority, description=description,
+            actor=self.actor)
+        return issue.model_dump()
+
     def read_jira_board(self, project_id: str) -> dict[str, Any]:
         """Return a dashboard view of a project's board (no sim-time cost).
 

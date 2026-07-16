@@ -205,6 +205,14 @@ def test_read_closes_only_the_readers_in_review(api: JiraApi, env: Env) -> None:
         api.transition_issue(issue.id, "in_progress", actor=pid)
         api.transition_issue(issue.id, "in_review", actor=pid)
 
+    # An unnamed bystander's read is awareness only — closes nothing.
+    react(env.engine, SlackReadEvent(
+        owner_id="bob", start_tick=0,
+        payload={"message_id": "m0", "channel_id": "eng",
+                 "body": "alice, clare: status?"}))
+    assert api.get_issue(mine.id).status == "in_review"
+    assert api.get_issue(theirs.id).status == "in_review"
+
     react(env.engine, SlackReadEvent(
         owner_id="alice", start_tick=0,
         payload={"message_id": "m", "channel_id": "eng",
@@ -212,6 +220,27 @@ def test_read_closes_only_the_readers_in_review(api: JiraApi, env: Env) -> None:
 
     assert api.get_issue(mine.id).status == "done"
     assert api.get_issue(theirs.id).status == "in_review"
+
+
+def test_one_message_carries_directives_for_several_readers(api: JiraApi, env: Env) -> None:
+    # One channel message can address several engineers; each directive lands
+    # when ITS addressee reads — alice's read bumps only her key.
+    hers = api.create_issue("checkout", "task", "Hers", estimate_minutes=30,
+                            assignee="alice", actor="erin")
+    theirs = api.create_issue("checkout", "task", "Theirs", estimate_minutes=30,
+                              assignee="clare", actor="erin")
+    body = f"alice please pick up {hers.id}; clare please pick up {theirs.id}"
+
+    react(env.engine, SlackReadEvent(
+        owner_id="alice", start_tick=0,
+        payload={"message_id": "m", "channel_id": "eng", "body": body}))
+    assert api.get_issue(hers.id).priority == 0
+    assert api.get_issue(theirs.id).priority == theirs.priority  # not until clare reads
+
+    react(env.engine, SlackReadEvent(
+        owner_id="clare", start_tick=0,
+        payload={"message_id": "m", "channel_id": "eng", "body": body}))
+    assert api.get_issue(theirs.id).priority == 0
 
 
 def test_directive_read_bumps_and_preempts_end_to_end(api: JiraApi, env: Env) -> None:
@@ -236,8 +265,9 @@ def test_directive_read_bumps_and_preempts_end_to_end(api: JiraApi, env: Env) ->
 
     reads = env.store.db.query_all(
         "SELECT * FROM event WHERE type = 'slack.read' AND status = 'done'")
-    assert [r["owner_id"] for r in reads] == ["alice"]
-    assert 10 < reads[0]["done_tick"] <= 70      # read within the hour of the send
+    assert "alice" in {r["owner_id"] for r in reads}  # whole channel reads
+    alice_read = next(r for r in reads if r["owner_id"] == "alice")
+    assert 10 < alice_read["done_tick"] <= 70    # read within the hour of the send
     assert api.get_issue(urgent.id).priority == 0
     assert "activity.interrupt" in {e.kind for e in env.store.read_log()}
     done_urgent, done_current = api.get_issue(urgent.id), api.get_issue(current.id)
@@ -248,8 +278,8 @@ def test_directive_read_bumps_and_preempts_end_to_end(api: JiraApi, env: Env) ->
 def test_slack_read_defers_until_the_meeting_ends(api: JiraApi, env: Env) -> None:
     # A read that would land mid-meeting yields past it at schedule time: alice
     # reads right after the meeting ends, and the directive's preempt fires then.
-    current = api.create_issue("checkout", "task", "Current", estimate_minutes=200,
-                               assignee="alice", actor="erin")
+    api.create_issue("checkout", "task", "Current", estimate_minutes=200,
+                     assignee="alice", actor="erin")
     urgent = api.create_issue("checkout", "task", "Urgent", estimate_minutes=30,
                               assignee="alice", actor="erin")
     driver = WorkDriver(api, ["alice"], "checkout")

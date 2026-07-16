@@ -377,56 +377,70 @@ def _on_meeting_done(engine: "Engine", event: "Event") -> None:
         _close_in_review(api, pid, trigger="standup")
 
 
-def _on_slack_send(engine: "Engine", event: "Event") -> None:
-    """Each person named in the message reads it within the hour.
+def _named(person, low: str) -> bool:
+    """Is ``person`` addressed by the (lowercased) message body?
 
-    "Named" is a case-insensitive substring match of the person's ``name`` or
-    ``id`` in the message body — deterministic, no model in the loop. Each named
-    person (never the sender) gets a :class:`~pm.sim.events.SlackReadEvent` at a
-    seeded-random 1–60 minutes later; the message's *effects* fire when they read
-    it (see :func:`_on_slack_read`). A read that would land during a meeting or
-    OOO yields past it at schedule time (see :func:`pm.sim.calendar.reserve`). A
-    read scheduled past week end never fires — a directive sent in the last hour
-    can go unread.
+    A case-insensitive substring match of the person's ``name`` or ``id`` —
+    deterministic, no model in the loop.
+    """
+    return person.name.lower() in low or person.id.lower() in low
+
+
+def _on_slack_send(engine: "Engine", event: "Event") -> None:
+    """A channel message: everyone reads it within the hour.
+
+    Every person except the sender (and agents — the PM reads the channel via
+    its ``read_slack`` tool) gets a :class:`~pm.sim.events.SlackReadEvent` at a
+    seeded-random 1–60 minutes later. The message's *effects* fire only when a
+    reader it addresses reads it (see :func:`_on_slack_read`); everyone else's
+    read is awareness only. A read that would land during a meeting or OOO
+    yields past it at schedule time (see :func:`pm.sim.calendar.reserve`). A
+    read scheduled past week end never fires — a directive sent in the last
+    hour can go unread.
     """
     body = event.payload.get("body", "")
-    low = body.lower()
-    if not low:
+    if not body:
         return
     now = engine.clock.now()
     seed = engine.store.get_meta("seed", "0") or "0"
     for person in engine.store.list_people():
-        if person.id == event.owner_id:
+        if person.id == event.owner_id or person.is_agent:
             continue
-        if person.name.lower() in low or person.id.lower() in low:
-            delay = random.Random(f"{seed}:{person.id}:{now}").randint(1, 60)
-            engine.schedule(SlackReadEvent(
-                owner_id=person.id, initiator_id=event.owner_id,
-                start_tick=now + delay,
-                payload={"channel_id": event.payload.get("channel_id", ""),
-                         "message_id": event.payload.get("message_id", ""),
-                         "body": body},
-            ))
+        delay = random.Random(f"{seed}:{person.id}:{now}").randint(1, 60)
+        engine.schedule(SlackReadEvent(
+            owner_id=person.id, initiator_id=event.owner_id,
+            start_tick=now + delay,
+            payload={"channel_id": event.payload.get("channel_id", ""),
+                     "message_id": event.payload.get("message_id", ""),
+                     "body": body},
+        ))
 
 
 def _on_slack_read(engine: "Engine", event: "Event") -> None:
     """Reading a message that names you: close your parked work, take directives.
 
-    The reader closes their own finished-but-unclosed (``in_review``) issues. A
-    *directive* body — one containing the phrase "pick up" — additionally bumps
-    every issue key it names to priority 0, the "explicitly asked by the PM"
-    level that even a freestyle persona works first (see :func:`_next_issue`)
-    and that preempts the assignee's in-progress ticket (see
-    :meth:`WorkDriver._preempt_if_directed`). A mere mention of a key (a status
-    highlight) steers nothing.
+    A reader the body does not address takes no action (awareness only). A
+    named reader closes their own finished-but-unclosed (``in_review``) issues,
+    and a *directive* body — one containing the phrase "pick up" — additionally
+    bumps the named issue keys **assigned to the reader (or unassigned)** to
+    priority 0, the "explicitly asked by the PM" level that even a freestyle
+    persona works first (see :func:`_next_issue`) and that preempts the
+    assignee's in-progress ticket (see :meth:`WorkDriver._preempt_if_directed`).
+    One message can carry directives for several people; each takes effect when
+    its addressee reads. A mere mention of a key (a status highlight) steers
+    nothing.
     """
+    body = event.payload.get("body", "").lower()
+    reader = engine.store.get_person(event.owner_id)
+    if reader is None or not _named(reader, body):
+        return  # not addressed: the read is awareness only
     api = _jira(engine)
     _close_in_review(api, event.owner_id, trigger="slack")
-    body = event.payload.get("body", "").lower()
     if "pick up" in body:
         for key in re.findall(r"\b[a-z]+-\d+\b", body):
             issue = api.repo.get_issue(key.upper())
-            if issue is not None and issue.status not in _TERMINAL:
+            if (issue is not None and issue.status not in _TERMINAL
+                    and issue.assignee_id in (None, event.owner_id)):
                 api.set_priority(issue.id, 0, actor=event.owner_id)
 
 
@@ -435,8 +449,8 @@ def _on_slack_read(engine: "Engine", event: "Event") -> None:
 REACTIONS: dict[EventType, Reaction] = {
     EventType.EMAIL_SEND: _noop,      # TODO: recipient may reply on the slower email cadence
     EventType.EMAIL_READ: _noop,      # awareness only — nothing to react to
-    EventType.SLACK_SEND: _on_slack_send,  # named people read the message within the hour
-    EventType.SLACK_READ: _on_slack_read,  # reader closes in_review work, takes directives
+    EventType.SLACK_SEND: _on_slack_send,  # everyone reads the channel within the hour
+    EventType.SLACK_READ: _on_slack_read,  # a named reader closes work / takes directives
     EventType.JIRA_TICKET: _on_jira_ticket_done,  # finish → pick up next ready assigned ticket
     EventType.MEETING: _on_meeting_done,  # standup end → attendees close in_review work
     EventType.OOO: _noop,             # TODO: on return, the person picks up their backlog

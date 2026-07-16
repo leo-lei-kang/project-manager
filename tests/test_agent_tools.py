@@ -63,6 +63,24 @@ def test_read_slack_returns_conversation(tools: AgentTools, env: Env) -> None:
     assert [m["body"] for m in tools.read_slack("eng", since_tick=1)] == ["thanks"]
 
 
+def test_create_jira_ticket_creates_and_costs_no_time(tools: AgentTools, env: Env) -> None:
+    created = tools.create_jira_ticket("checkout", "Fix login", assignee="alice",
+                                       estimate_minutes=30)
+
+    assert created["title"] == "Fix login" and created["status"] == "todo"
+    assert created["assignee_id"] == "alice" and created["priority"] == 2
+    assert env.clock.now() == 0  # board mutations are zero-cost
+    board = tools.read_jira_board("checkout")
+    assert [i["key"] for i in board["issues"]] == [created["id"]]
+
+
+def test_create_jira_ticket_unknown_project_raises_tool_error(tools: AgentTools) -> None:
+    from pm.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="nope"):
+        tools.create_jira_ticket("nope", "Ghost ticket")
+
+
 def test_read_jira_board_summarizes_issues(tools: AgentTools) -> None:
     tools.jira.create_issue("checkout", "task", "API", estimate_minutes=60, actor="erin")
     tools.jira.create_issue("checkout", "task", "UI", estimate_minutes=60, actor="erin")

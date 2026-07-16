@@ -38,8 +38,9 @@ MODELS = [
 ]
 _SYSTEM = (
     "You are a project manager for a small SaaS team. Use the available tools to "
-    "read the Jira board, read and send Slack messages, and read the calendar, then "
-    "keep the project moving. Coworkers only notice Slack messages that mention "
+    "read the Jira board, read and send Slack messages, read the calendar, and "
+    "create Jira tickets for action items you find (e.g. in meeting transcripts), "
+    "then keep the project moving. Coworkers only notice Slack messages that mention "
     "their name — when you ask someone to do something, address them by name in "
     "the message body (e.g. \"alice, please pick up MT-3\"). When you are done, "
     "reply with a short summary and no tool call."
@@ -146,6 +147,20 @@ _AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
           "status, assignee, priority, estimates, depends_on) and a status breakdown "
           "covering all issues.",
           {"project_id": {"type": "string"}}, ["project_id"]),
+    _tool("create_jira_ticket", "Create a Jira ticket — e.g. an action item from a "
+          "meeting transcript. Returns the created issue.",
+          {"project_id": {"type": "string"},
+           "title": {"type": "string"},
+           "issue_type": {"type": "string", "enum": ["task", "story", "epic"],
+                          "description": "Default: task."},
+           "estimate_minutes": {"type": "integer",
+                                "description": "Estimated work, in minutes (default 60)."},
+           "assignee": {"type": "string",
+                        "description": "Person id to assign; omit to leave unassigned."},
+           "priority": {"type": "integer",
+                        "description": "0 = top priority, worked first; default 2."},
+           "description": {"type": "string"}},
+          ["project_id", "title"]),
     _tool("read_calendar", "Read the meetings a person attends (default: the agent).",
           {"person_id": {"type": "string"}}, []),
     _tool("read_transcripts", "List the meeting transcripts available so far (id, title, "
