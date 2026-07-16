@@ -25,10 +25,12 @@ your OpenRouter account.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -64,40 +66,57 @@ def _seed(env: Env) -> AgentTools:
     return tools
 
 
+def _log(msg: str) -> None:
+    """Print ``msg`` stamped with wall time at millisecond precision."""
+    print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {msg}")
+
+
 def _banner(model: str, backend: str, prompt: str) -> None:
-    print(f"model:   {model}")
-    print(f"backend: {backend}")
-    print(f"tickets: {_TICKETS}")
-    print(f"prompt:  {prompt}\n")
+    _log(f"model:   {model}")
+    _log(f"backend: {backend}")
+    _log(f"tickets: {_TICKETS}")
+    _log(f"prompt:  {prompt}")
 
 
 def _run_in_process(model: str, prompt: str, api_key: str) -> None:
     from openai import AsyncOpenAI
 
     with tempfile.TemporaryDirectory() as tmp:
+        t0 = time.monotonic()
         env = Env.make(run_id=_RUN_ID, root=Path(tmp))
         tools = _seed(env)
+        _log(f"board seeded ({time.monotonic() - t0:.2f}s)")
         client = AsyncOpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
-        agent = LLMAgent(client, model, InProcessBackend(tools))
+        agent = LLMAgent(client, model, InProcessBackend(tools), log=_timed_log())
         _banner(model, "in-process (no server)", prompt)
-        print("answer:", asyncio.run(agent.run(prompt)))
+        _log("agent loop starting")
+        t0 = time.monotonic()
+        answer = asyncio.run(agent.run(prompt))
+        _log(f"answer: {answer}")
+        _log(f"total: {time.monotonic() - t0:.1f}s for the loop")
         env.close()
 
 
 def _timed_log() -> callable:
-    """Print each agent-log entry with the wall time since the previous one."""
+    """Print each agent-log entry, wall-time stamped, with the seconds since the
+    previous entry (an llm_call's delta is its model round trip; the tools run
+    locally in microseconds, so the deltas isolate the network)."""
     last = time.monotonic()
 
     def log(entry: dict) -> None:
         nonlocal last
-        if entry["kind"] == "llm_call":
-            dt, last = time.monotonic() - last, time.monotonic()
-            out = entry["output"]["content"] or " ".join(
-                f"->{c['name']}" for c in entry["output"]["tool_calls"])
-            print(f"  llm_call step {entry['step']}: {dt:5.1f}s — "
-                  f"{entry['input_tokens']} in / {entry['output_tokens']} out — {out[:70]}")
+        dt, last = time.monotonic() - last, time.monotonic()
+        if entry["kind"] == "llm_request":
+            _log(f"  llm_request step {entry['step']}: prompt sent "
+                 f"({entry['messages']} messages, {len(entry['input'])} new)")
+            for m in entry["input"]:
+                print(json.dumps(m, indent=4))
+        elif entry["kind"] == "llm_call":
+            _log(f"  llm_call step {entry['step']}: {dt:6.2f}s — "
+                 f"{entry['input_tokens']} in / {entry['output_tokens']} out")
+            print(json.dumps(entry["output"], indent=4))
         else:
-            print(f"  tool_call {entry['name']}")
+            _log(f"  tool_call {entry['name']} (+{dt:.3f}s)")
 
     return log
 
@@ -115,18 +134,20 @@ def _run_scenario_review(name: str, model: str | None, api_key: str) -> None:
         raise SystemExit(f"scenario {name!r} has no PM review loop (no PROMPT)")
 
     with tempfile.TemporaryDirectory() as tmp:
+        t0 = time.monotonic()
         env = module.build(run_id=_RUN_ID, root=Path(tmp))
+        _log(f"scenario board built ({time.monotonic() - t0:.2f}s)")
         model = model or getattr(module, "DEFAULT_MODEL", _DEFAULT_MODEL)
         client = AsyncOpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
         # max_steps=6 mirrors pm.agent.hook.llm_review_hook's review budget.
         agent = LLMAgent(client, model, InProcessBackend(AgentTools(env)),
                          max_steps=6, log=_timed_log())
-        print(f"model:    {model}")
-        print(f"scenario: {name} (week-start board, one review loop)\n")
+        _log(f"model:    {model}")
+        _log(f"scenario: {name} (week-start board, one review loop)")
         t0 = time.monotonic()
         answer = asyncio.run(agent.run(module.PROMPT))
-        print(f"\nanswer: {answer}")
-        print(f"total:  {time.monotonic() - t0:.1f}s for one review loop")
+        _log(f"answer: {answer}")
+        _log(f"total:  {time.monotonic() - t0:.1f}s for one review loop")
         env.close()
 
 

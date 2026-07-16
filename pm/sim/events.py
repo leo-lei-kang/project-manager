@@ -339,9 +339,6 @@ class MeetingEvent(Event):
                 attendees={pid: "accepted" for pid in p.get("attendees", [])},
             )
         )
-        engine.store.log_event(
-            now, actor=self.owner_id, kind="meeting.kind", payload={"kind": p.get("kind", "adhoc")}
-        )
         # Bridge into the activity system: a ``meeting`` activity (priority 100)
         # occupies the attendees so the meeting preempts any activity work they
         # are in. ``event_id`` in the params makes the kind's hooks skip their
