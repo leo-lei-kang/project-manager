@@ -16,9 +16,9 @@ these exactly. Cross-member dependencies are just-in-time: each blocker's
 intended completion tick <= its dependent's intended start tick.
 
 ``build(member_persona=...)`` seeds the five implementers with the given behavior
-persona (default: the standard priority/dependency-respecting one), so the same
-board can be re-seeded with e.g. :data:`pm.npc.persona.CHAOTIC` to show the team
-failing the week when they pick tasks out of order.
+persona (default: :data:`pm.npc.persona.PERFECT`), so the same board can be re-seeded
+with e.g. :data:`pm.npc.persona.FREE_SPIRIT` to show the team failing the week when
+they pick tasks out of order.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import MEMBERS as _CAST_MEMBERS
 from pm.npc.cast import seed_cast
-from pm.npc.persona import DEFAULT, Persona
+from pm.npc.persona import PERFECT, Persona
 from pm.sim.clock import MINUTES_PER_WORKDAY
 from pm.sim.events import MeetingEvent
 from pm.world.models import Project
@@ -226,7 +226,7 @@ def _schedule_meetings(env: Env) -> None:
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
-          force: bool = True, member_persona: Persona = DEFAULT) -> Env:
+          force: bool = True, member_persona: Persona = PERFECT) -> Env:
     """Create the run, seed cast + saturated board + meetings, snapshot ``seed.db``."""
     env = Env.make(SCENARIO, run_id, seed, force=force, root=root)
     cast = [replace(c, persona=member_persona) if c.kind == "member" else c for c in CAST]

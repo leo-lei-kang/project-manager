@@ -302,7 +302,7 @@ class JiraTicketEvent(Event):
         if issue.remaining_minutes > 0:
             api.log_work(key, issue.remaining_minutes, actor=self.owner_id)
         # ``auto_close`` (default True) preserves the standard finish-to-done flow;
-        # an ``on_reminder`` persona parks the work in ``in_review`` until a standup
+        # a ``when_asked`` persona parks the work in ``in_review`` until a standup
         # or a Slack mention closes it (see pm.npc.reactions).
         to_status: "IssueStatus" = "done" if self.payload.get("auto_close", True) else "in_review"
         api.transition_issue(key, to_status, actor=self.owner_id)

@@ -13,7 +13,7 @@ from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.npc.persona import CHAOTIC
+from pm.npc.persona import FREE_SPIRIT
 from pm.scenarios.tight_week import DEPS, MEMBERS, PROJECT_ID, TASKS, build
 from pm.sim.clock import WEEK_END_TICK
 from pm.sim.simulation import Simulation
@@ -67,10 +67,10 @@ def test_default_personas_finish_exactly_at_week_end(tmp_path):
     env.close()
 
 
-def test_chaotic_personas_do_not_finish(tmp_path):
+def test_free_spirit_personas_do_not_finish(tmp_path):
     # Random task selection strands time behind meetings and idles on blocked
     # deps; with zero slack the same board cannot complete. Deterministic per seed.
-    env = build(run_id="tight-chaos", root=tmp_path, member_persona=CHAOTIC)
+    env = build(run_id="tight-chaos", root=tmp_path, member_persona=FREE_SPIRIT)
     api = JiraApi(JiraRepository(env.store), env.engine)
 
     Simulation(env).run(on_tick=assignee_pickup_hook(api, MEMBERS, PROJECT_ID))

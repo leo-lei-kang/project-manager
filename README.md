@@ -4,12 +4,11 @@ A single-node, deterministic simulation of a project manager's first week at a
 SaaS company. Simulated time is decoupled from wall-clock inference latency,
 coworkers act asynchronously, and outcomes are graded defensibly.
 
-Built in layers on a SQLite single source of truth: the persistence layer + typed
-repository, the **simulation kernel** (clock + durative-event scheduler + engine +
-the bounded work-week `Simulation`), a **Jira-style issue tracker**, **stateful NPC
-coworkers** who work the board over sim-time, the `Env` facade, an operator CLI, and
-an **agent tool surface** (chat / board / calendar) exposed over MCP with an
-OpenRouter-driven agent. See [Agent](#agent) and [Roadmap](#roadmap).
+Built in layers on a SQLite single source of truth: a **simulation kernel**, a
+**Jira-style issue tracker**, **stateful NPC coworkers** who work the board over
+sim-time, an operator CLI, and an **agent tool surface** exposed over MCP with an
+OpenRouter-driven agent — see [Architecture](#architecture-at-a-glance),
+[Agent](#agent), and [Roadmap](#roadmap).
 
 ## Architecture at a glance
 
@@ -44,9 +43,9 @@ pm/
   env/          # Env facade over store + sim kernel (make/load/reset/db)
   eval/         # deterministic evaluation over a run's final board state
   viz/          # static-HTML renderers: per-person calendars, ticket week-timeline
-  scenarios/    # code-seeded scenarios (team_week, tight_week) + generator
+  scenarios/    # code-seeded scenarios (tight_week, test_two_engineers, test_single_engineer) + generator
   cli.py        # `pm sim` / `pm eval` / `pm viz`
-examples/       # runnable demos (see examples/README.md)
+examples/       # runnable demos (see Examples below)
 tests/          # pytest suite covering db, sim, jira, npc, agent, env, scenarios
 ```
 
@@ -60,10 +59,9 @@ work — see [`docs/architecture.md`](docs/architecture.md).
 |-------|--------|---------|
 | Sim machinery | `meta`, `event`, `event_log` | clock/config, persisted durative-event queue, append-only trace |
 | Org | `person`, `project` | coworkers + the agent-under-test; the active project |
-| Work | `task`, `task_dependency` | tasks with blocked state and dependency edges |
 | Chat | `channel`, `channel_member`, `message` | DMs and channels |
 | Email | `email_thread`, `email`, `email_recipient` | slower-cadence threads |
-| Calendar | `meeting`, `meeting_attendee`, `transcript` | meetings + attend-only transcripts |
+| Calendar | `occupancy`, `meeting`, `meeting_attendee`, `transcript` | per-NPC time blocks; meetings + attend-only transcripts |
 | Docs | `document` | discoverable specs/PRDs/reports |
 | Jira | `issue`, `issue_dependency` | issue tracker (added by `pm/jira`, own DDL) |
 
@@ -107,22 +105,23 @@ The quickest way is `pm sim` — build a scenario run and simulate its work week
 uv run pm sim --scenario tight_week                    # build + simulate -> runs/tight_week/
 uv run pm sim --run-id tight_week                      # continue an existing run
 uv run pm sim --scenario tight_week --run-id myweek    # same, under a custom run id
-# -> Simulated Mon 09:00 -> Fri 17:00 (tick 2400); 154 event transitions fired.
+uv run pm sim --scenario tight_week --run-id chaos \
+              --persona free_spirit                  # seed a misbehaving persona
+# -> prints the simulated span (Mon 09:00 -> Fri 17:00) and the events fired.
 ```
 
-Scenarios: `tight_week` (a capacity-saturated board the team barely finishes) and
-`team_week` (a lighter board). The run id defaults to the scenario name; the run
-persists to `runs/<run-id>/`, ready for `pm eval`.
+| Scenario | Stresses |
+|----------|----------|
+| `tight_week` | a capacity-saturated board the team can *barely* finish in order |
+| `test_two_engineers` | two engineers whose tickets cross-block each other just-in-time |
+| `test_single_engineer` | one overloaded engineer — priority triage decides what ships |
 
-For a per-day progress report, the example script does the same with narration
-and persists to `runs/tight_week/`:
+`--persona` seeds the members' behavior when building (`perfect` |
+`heads_down` | `free_spirit`); the imperfect personas show a board
+failing its week.
 
-```bash
-uv run python examples/run_tight_week.py
-# -> per-day progress report, then:
-#    runs/tight_week/seed.db   (immutable seeded starting state)
-#    runs/tight_week/world.db  (the finished week, ready to evaluate)
-```
+For a per-day progress report with narration, `examples/run_tight_week.py` does
+the same and persists the finished run to `runs/tight_week/`.
 
 The same loop in code, for any scenario:
 
@@ -130,7 +129,7 @@ The same loop in code, for any scenario:
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.scenarios import tight_week          # or team_week
+from pm.scenarios import tight_week          # or test_two_engineers
 from pm.sim.simulation import Simulation
 
 env = tight_week.build()                     # seed cast + board + meetings
@@ -162,9 +161,7 @@ Project GA — Live Transcription GA
 Goal: ACCOMPLISHED — 66/66 tasks done, 176.25h of 176.25h completed
   last completion Fri 17:00 (tick 2400); deadline Fri 17:00 (tick 2400) — met
 By person:
-  Alice    16 done (33.75h), 0 remaining (0h)
-      done GA-3     Audit GA release checklist        at Mon 11:00
-      ...
+  ...per-person done/remaining breakdown, one line per task...
 Remaining:
   none
 ```
@@ -182,27 +179,17 @@ store.close()
 
 ## Examples
 
-Self-contained, runnable demos live in [`examples/`](examples/) (details in
-[`examples/README.md`](examples/README.md)). Each builds a throwaway database,
-prints what it does, and cleans up after itself:
+Self-contained, runnable demos live in [`examples/`](examples/); each module's
+docstring says what it shows. They build a throwaway database, print what they
+do, and clean up after themselves — for example:
 
 ```bash
-uv run python examples/jira_board.py       # the pm.jira board (static)
-uv run python examples/run_week.py         # the full Mon->Fri sim loop
-uv run python examples/npc_calendar.py     # per-NPC calendar: meetings vs. work
-uv run python examples/run_tight_week.py   # capacity-saturated week (persists to runs/)
+uv run python examples/run_week.py   # the full Mon->Fri sim loop, per-day report
 ```
 
 The exception: `run_tight_week.py` deliberately persists its run to
 `runs/tight_week/` so the result can be inspected and evaluated (see
 [Running the evaluation](#running-the-evaluation)).
-
-| Example | Shows |
-|---------|-------|
-| `jira_board.py` | Realistic one-week transcription sprint (`pm.jira`): 1 epic, 5 stories, 25 tasks, estimates, owners, rollups, cross-story dependencies; cascade unblocking. |
-| `run_week.py` | The bounded Mon 09:00 → Fri 17:00 `Simulation` loop over the `team_week` scenario: the engineer cast works the assigned `TRANS` Jira board while meetings fire, with a per-day report of events and the board's end-of-day status. |
-| `npc_calendar.py` | Coworkers' week on the per-NPC calendar — meetings vs. work, with priority bump/defer and pause/resume. |
-| `run_tight_week.py` | The `tight_week` scenario: a capacity-saturated board (66 tasks tiling every member's meeting-free calendar exactly) worked in dependency + priority order — the last task completes at exactly Fri 17:00, tick 2400 of 2400. Persists `runs/tight_week/{seed.db, world.db}`. |
 
 ## Agent
 
@@ -223,12 +210,12 @@ description = docstring, schema = the typed signature) and driven by an
 
 ```bash
 # 1) Create a run for the agent to act on: seed a scenario WITHOUT simulating
-#    the week (the module's __main__ builds runs/team_week/ and stops).
-uv run python -m pm.scenarios.team_week
+#    the week (the module's __main__ builds runs/test_two_engineers/ and stops).
+uv run python -m pm.scenarios.test_two_engineers
 
 # 2) Serve the tools over MCP (binds the run named by PM_RUN_ID; defaults to "demo").
 uv sync --extra mcp
-PM_RUN_ID=team_week uv run pm-mcp   # streamable-http on PM_MCP_HOST/PM_MCP_PORT
+PM_RUN_ID=test_two_engineers uv run pm-mcp   # streamable-http on PM_MCP_HOST/PM_MCP_PORT
 
 # 3) Drive the agent with an OpenRouter model. Copy .env.example -> .env and set
 #    OPENROUTER_API_KEY + OPENROUTER_MODEL (any OpenRouter model id, configurable).
@@ -297,4 +284,3 @@ Not yet attached (designed to plug in without schema changes):
 2. **Data-driven scenario authoring** — a loader so new scenarios need no new code.
 3. **More agent tools** — email and docs surfaces alongside the current
    chat / board / calendar tools.
-# project-manager

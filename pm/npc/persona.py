@@ -6,10 +6,16 @@ to shape *what* an NPC does. It is folded into ``Person.persona`` JSON by
 :func:`pm.npc.cast.seed_cast` (under the ``"behavior"`` key), so it lives in
 SQLite and replays deterministically like everything else.
 
-The dataclass defaults reproduce today's behavior exactly (priority order,
-dependencies respected, no blocker weighting, auto-close), so an NPC with no
-explicit persona behaves as it always has. The named presets opt into the
-imperfect — and one perfect — variants.
+There are three named presets:
+
+* :data:`PERFECT` — the competent worker: evaluates dependencies, works by
+  priority, finishes on time, and posts a Slack status update when picking up
+  work (keeping the team unblocked and informed).
+* :data:`HEADS_DOWN` — heads-down builder: ships the work, but only updates the
+  board when the team syncs — a standup or a Slack mention prompts the close.
+* :data:`FREE_SPIRIT` — follows their own path through the backlog: picks the
+  next ticket at (seeded) random and doesn't wait on dependency order, so
+  blocked/unready tickets get worked too.
 """
 
 from __future__ import annotations
@@ -20,43 +26,39 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from pm.world.models import Person
 
-TaskSelection = Literal["priority", "random"]
-Completion = Literal["auto", "on_reminder"]
+WorkStyle = Literal["by_priority", "freestyle"]
+BoardUpdates = Literal["on_finish", "when_asked"]
 
 
 @dataclass(frozen=True)
 class Persona:
     """Composable behavior traits for a coworker NPC.
 
-    * ``task_selection`` — ``priority`` takes the highest-priority ready issue;
-      ``random`` ignores priority and picks a candidate at (seeded) random.
-    * ``respects_dependencies`` — when ``False`` the NPC also picks up ``blocked``
-      issues (works things that are not actually ready).
-    * ``prioritizes_blockers`` — when ``True`` the NPC prefers issues that block
-      the most other work (the critical path), then priority.
-    * ``completion`` — ``auto`` marks work ``done`` on finish; ``on_reminder``
-      leaves it in ``in_review`` until a standup completes or a Slack message
-      names the person.
+    * ``work_style`` — how the next ticket is chosen. ``by_priority`` takes the
+      highest-priority ready ticket; ``freestyle`` picks at (seeded) random from
+      everything on their plate, blocked tickets included.
+    * ``board_updates`` — ``on_finish`` marks work ``done`` as it completes;
+      ``when_asked`` leaves it in ``in_review`` until a standup ends or a
+      Slack message names the person.
+    * ``announces_progress`` — when ``True`` the NPC posts a Slack status update
+      as it picks up work (raising the team's visibility). Requires a
+      ``status_channel`` wired into the pickup hook (:mod:`pm.npc.behavior`);
+      a no-op without one.
     """
 
-    task_selection: TaskSelection = "priority"
-    respects_dependencies: bool = True
-    prioritizes_blockers: bool = False
-    completion: Completion = "auto"
+    work_style: WorkStyle = "by_priority"
+    board_updates: BoardUpdates = "on_finish"
+    announces_progress: bool = False
 
 
-DEFAULT = Persona()
-PERFECT = Persona(prioritizes_blockers=True)
-FORGETFUL_CLOSER = Persona(completion="on_reminder")
-CHAOTIC = Persona(task_selection="random")
-DEPENDENCY_BLIND = Persona(task_selection="random", respects_dependencies=False)
+PERFECT = Persona(announces_progress=True)
+HEADS_DOWN = Persona(board_updates="when_asked")
+FREE_SPIRIT = Persona("freestyle")
 
 PRESETS: dict[str, Persona] = {
-    "default": DEFAULT,
     "perfect": PERFECT,
-    "forgetful_closer": FORGETFUL_CLOSER,
-    "chaotic": CHAOTIC,
-    "dependency_blind": DEPENDENCY_BLIND,
+    "heads_down": HEADS_DOWN,
+    "free_spirit": FREE_SPIRIT,
 }
 
 
@@ -66,12 +68,12 @@ def to_dict(persona: Persona) -> dict[str, object]:
 
 
 def from_person(person: "Person | None") -> Persona:
-    """Reconstruct a persona from a ``Person`` row, falling back to ``DEFAULT``.
+    """Reconstruct a persona from a ``Person`` row, falling back to ``PERFECT``.
 
     Only known fields are read, so extra/missing keys in stored JSON are tolerated.
     """
     if person is None:
-        return DEFAULT
+        return PERFECT
     behavior = person.persona.get("behavior", {})
     known = {f.name for f in fields(Persona)}
     return Persona(**{k: v for k, v in behavior.items() if k in known})

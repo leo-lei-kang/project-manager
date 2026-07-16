@@ -29,7 +29,7 @@ from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.npc.cast import CastMember
 from pm.npc.persona import Persona, from_person
-from pm.sim.events import JiraTicketEvent
+from pm.sim.events import JiraTicketEvent, SlackSendEvent
 
 if TYPE_CHECKING:
     from pm.sim.simulation import Simulation
@@ -43,7 +43,7 @@ def available_work_for(
     """Unassigned, ready issues in ``discipline``, highest priority first.
 
     ``statuses`` widens the candidate pool — e.g. include ``blocked`` for a
-    dependency-blind persona that works issues that are not actually ready.
+    freestyle persona that works tickets that are not actually ready.
     """
     out: list[Issue] = []
     for status in statuses:
@@ -61,20 +61,15 @@ def _persona_for(store: Store, pid: str) -> Persona:
 
 
 def _pickable_statuses(persona: Persona) -> tuple[str, ...]:
-    """Statuses this persona will pick up: ``blocked`` too when it ignores deps."""
-    return ("todo",) if persona.respects_dependencies else ("todo", "blocked")
-
-
-def _open_dependents(api: JiraApi, key: str) -> int:
-    """How many non-terminal issues this one blocks (its critical-path weight)."""
-    return sum(1 for d in api.repo.dependents(key) if d.status not in _TERMINAL)
+    """Statuses this persona picks up: freestyle takes ``blocked`` tickets too."""
+    return ("todo", "blocked") if persona.work_style == "freestyle" else ("todo",)
 
 
 def _in_flight(mine: list[Issue], dispatched: set[str]) -> bool:
     """Is this person actively working an issue right now?
 
     Only ``in_progress`` (or a just-dispatched, not-yet-terminal) issue counts as
-    busy. ``in_review`` — an ``on_reminder`` persona's finished-but-unclosed work —
+    busy. ``in_review`` — a ``when_asked`` persona's finished-but-unclosed work —
     does not, so they keep picking up work while it awaits a standup/Slack close.
     """
     for i in mine:
@@ -100,8 +95,9 @@ def _next_issue(
     """The issue this person should work next under their persona, or None.
 
     Candidates are their own ready issues plus (for a developer hook) unassigned
-    ready work in their discipline. Selection then follows the persona:
-    blocker-first, random, or priority (prefer already-assigned, then unassigned).
+    ready work in their discipline. Selection then follows the persona's
+    ``work_style``: seeded-random freestyle, or priority order (preferring
+    already-assigned work over unassigned).
     """
     pickable = _pickable_statuses(persona)
     assigned = [i for i in mine if i.status in pickable and i.id not in dispatched]
@@ -113,41 +109,62 @@ def _next_issue(
     candidates = assigned + unassigned
     if not candidates:
         return None
-    if persona.prioritizes_blockers:
-        return min(candidates, key=lambda i: (-_open_dependents(api, i.id), i.priority, i.id))
-    if persona.task_selection == "random":
+    if persona.work_style == "freestyle":
         rng = random.Random(f"{seed}:{pid}:{now}")
         return rng.choice(sorted(candidates, key=lambda i: i.id))
-    # priority: prefer already-assigned work, then unassigned (both priority-ordered)
+    # by_priority: prefer already-assigned work, then unassigned (both priority-ordered)
     if assigned:
         return min(assigned, key=lambda i: (i.priority, i.id))
     return unassigned[0] if unassigned else None
 
 
 def _dispatch_work(
-    sim: "Simulation", owner_id: str, issue: Issue, dispatched: set[str], persona: Persona
+    sim: "Simulation", owner_id: str, issue: Issue, dispatched: set[str], persona: Persona,
+    status_channel: str | None = None,
 ) -> None:
     """Schedule the work event for ``issue`` and record it as dispatched.
 
-    ``auto_close`` carries the persona's completion policy onto the event so it can
-    finish to ``done`` (auto) or hold in ``in_review`` (on_reminder) without the
-    event reaching back into persona state.
+    ``auto_close`` carries the persona's board-update policy onto the event so it
+    can finish to ``done`` (on_finish) or hold in ``in_review`` (when_asked)
+    without the event reaching back into persona state.
+
+    An ``announces_progress`` persona (see :data:`~pm.npc.persona.PERFECT`) also posts
+    a Slack status update to ``status_channel`` — raising the team's visibility. Skipped
+    when no channel is wired in.
     """
+    now = sim.clock.now()
     sim.schedule(
         JiraTicketEvent(
             owner_id=owner_id,
-            start_tick=sim.clock.now(),
+            start_tick=now,
             duration=issue.estimate_minutes,
-            payload={"issue_key": issue.id, "auto_close": persona.completion == "auto"},
+            payload={"issue_key": issue.id, "auto_close": persona.board_updates == "on_finish"},
         )
     )
+    if persona.announces_progress and status_channel is not None:
+        sim.schedule(
+            SlackSendEvent(
+                owner_id=owner_id,
+                start_tick=now,
+                payload={
+                    "message_id": f"progress-{owner_id}-{issue.id}-{now}",
+                    "channel_id": status_channel,
+                    "body": f"Starting {issue.id}: {issue.title}",
+                },
+            )
+        )
     dispatched.add(issue.id)
 
 
 def dev_pickup_hook(
-    api: JiraApi, roster: list[CastMember], project_id: str
+    api: JiraApi, roster: list[CastMember], project_id: str,
+    *, status_channel: str | None = None,
 ) -> Callable[["Simulation"], None]:
-    """Build a per-tick hook: idle devs take & work the next issue in their discipline."""
+    """Build a per-tick hook: idle devs take & work the next issue in their discipline.
+
+    ``status_channel`` (optional) is the Slack channel an ``announces_progress`` persona
+    posts pickup updates to; omit it to disable those posts.
+    """
     dispatched: set[str] = set()
     seed = api.repo.store.get_meta("seed", "0") or "0"
 
@@ -168,18 +185,21 @@ def dev_pickup_hook(
                 continue
             if issue.assignee_id != spec.id:
                 api.assign_issue(issue.id, spec.id, actor=spec.id)
-            _dispatch_work(sim, spec.id, issue, dispatched, persona)
+            _dispatch_work(sim, spec.id, issue, dispatched, persona, status_channel)
 
     return hook
 
 
 def assignee_pickup_hook(
-    api: JiraApi, person_ids: list[str], project_id: str
+    api: JiraApi, person_ids: list[str], project_id: str,
+    *, status_channel: str | None = None,
 ) -> Callable[["Simulation"], None]:
     """Build a per-tick hook for a pre-assigned board: each person works their own todo.
 
     Matches on assignee (not discipline), so it drives boards whose issues are
     assigned up front and carry no component; dependencies cascade as blockers finish.
+    ``status_channel`` (optional) is the Slack channel an ``announces_progress`` persona
+    posts pickup updates to; omit it to disable those posts.
     """
     dispatched: set[str] = set()
     seed = api.repo.store.get_meta("seed", "0") or "0"
@@ -195,7 +215,7 @@ def assignee_pickup_hook(
                 api, project_id, persona, mine, dispatched, pid=pid, now=now, seed=seed,
             )
             if issue is not None:
-                _dispatch_work(sim, pid, issue, dispatched, persona)
+                _dispatch_work(sim, pid, issue, dispatched, persona, status_channel)
 
     return hook
 

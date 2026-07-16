@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 Reaction = Callable[["Engine", "Event"], None]
 
-# Event types whose reactions close an ``on_reminder`` persona's finished work,
+# Event types whose reactions close a ``when_asked`` persona's finished work,
 # distinct from the work cascade — see :func:`close_reactions_on_tick`.
 _CLOSE_EVENTS = (EventType.MEETING, EventType.SLACK_SEND)
 
@@ -56,7 +56,7 @@ def _close_in_review(api: "JiraApi", person_id: str) -> None:
 def _on_jira_ticket_done(engine: "Engine", event: "Event") -> None:
     """A coworker who just finished a Jira ticket picks up their next ready one.
 
-    Carries the owner's completion policy onto the next ticket so an ``on_reminder``
+    Carries the owner's board-update policy onto the next ticket so a ``when_asked``
     persona keeps parking finished work in ``in_review`` in the reaction-driven mode.
     """
     api = _jira(engine)
@@ -70,7 +70,7 @@ def _on_jira_ticket_done(engine: "Engine", event: "Event") -> None:
             owner_id=event.owner_id,
             start_tick=engine.clock.now(),
             duration=issue.estimate_minutes,
-            payload={"issue_key": issue.id, "auto_close": persona.completion == "auto"},
+            payload={"issue_key": issue.id, "auto_close": persona.board_updates == "on_finish"},
         )
     )
 

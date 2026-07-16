@@ -11,7 +11,7 @@ from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.npc.persona import CHAOTIC
+from pm.npc.persona import FREE_SPIRIT
 from pm.scenarios.tight_week import MEMBERS, PROJECT_ID, build
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
@@ -47,7 +47,7 @@ def test_accomplished_week(tmp_path):
 
 
 def test_unfinished_week(tmp_path):
-    env = _run(tmp_path, "eval-chaos", member_persona=CHAOTIC)
+    env = _run(tmp_path, "eval-chaos", member_persona=FREE_SPIRIT)
     report = evaluate(env.store)
 
     assert not report.goal_accomplished

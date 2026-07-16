@@ -2,9 +2,9 @@
 
     uv run python examples/npc_calendar.py
 
-Builds the "Team Week" scenario (``pm.scenarios.team_week``): a six-person team, an
-assigned Jira board, and eleven pre-scheduled meetings (daily standups, Alice's
-1:1s, a Friday team meeting, a Wednesday ad-hoc). Then it runs the work week while
+Builds the "Tight Week" scenario (``pm.scenarios.tight_week``): a six-person team,
+a capacity-saturated 66-task Jira board, and eleven pre-scheduled meetings (daily
+standups, Alice's 1:1s, a Friday team meeting, a Wednesday ad-hoc). Then it runs the work week while
 each coworker autonomously works their assigned issues, so their work
 (``JiraTicketEvent``, low priority) collides with the meetings (high priority) on the
 shared per-NPC calendar (``pm.sim.calendar``).
@@ -34,7 +34,7 @@ from pathlib import Path
 from pm.jira.api import JiraApi  # noqa: E402
 from pm.jira.repository import JiraRepository  # noqa: E402
 from pm.npc.behavior import assignee_pickup_hook  # noqa: E402
-from pm.scenarios import team_week  # noqa: E402
+from pm.scenarios import tight_week  # noqa: E402
 from pm.sim.clock import format_tick  # noqa: E402
 from pm.sim.events import MeetingEvent  # noqa: E402
 from pm.sim.simulation import Simulation  # noqa: E402
@@ -83,11 +83,11 @@ def _run_hook(api: JiraApi):
     """The per-tick driver: coworkers work their board, plus one surprise meeting.
 
     Wraps :func:`assignee_pickup_hook`; at Mon 12:00 it drops a 30-min ad-hoc onto
-    Elieen while her STT task is in progress, so the calendar must *pause & resume*
+    Elieen while her design task is in progress, so the calendar must *pause & resume*
     it (rather than defer, as it does for meetings booked before the work exists).
     """
-    pickup = assignee_pickup_hook(api, team_week.MEMBERS, team_week.PROJECT_ID)
-    surprise_tick = team_week.at(0, 12)
+    pickup = assignee_pickup_hook(api, tight_week.MEMBERS, tight_week.PROJECT_ID)
+    surprise_tick = tight_week.at(0, 12)
     injected = False
 
     def hook(sim: Simulation) -> None:
@@ -107,15 +107,15 @@ def _run_hook(api: JiraApi):
 
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        env = team_week.build(run_id="npc-calendar", root=Path(tmp), force=True)
+        env = tight_week.build(run_id="npc-calendar", root=Path(tmp), force=True)
         store = env.store
         repo = JiraRepository(store)
         repo.ensure_schema()
         api = JiraApi(repo, env.engine)
-        names = {c.id: c.name for c in team_week.CAST}
+        names = {c.id: c.name for c in tight_week.CAST}
 
-        print(f"=== {team_week.SCENARIO}: the team ===")
-        for c in team_week.CAST:
+        print(f"=== {tight_week.SCENARIO}: the team ===")
+        for c in tight_week.CAST:
             tag = "" if c.works else "  (doesn't implement)"
             print(f"  {c.id:<8} {c.name:<8} {c.role}{tag}")
         seeded = store.db.query_one(
@@ -129,7 +129,7 @@ def main() -> None:
 
         events = _week_events(store)
         totals = {"deferred": 0, "paused": 0}
-        for pid in team_week.MEMBERS:
+        for pid in tight_week.MEMBERS:
             mine = [ev for ev in events if _attended_by(ev, pid)]
             meeting_ends = {
                 ev["start_tick"] + ev["duration"]
@@ -155,7 +155,7 @@ def main() -> None:
             totals["paused"] += paused
 
         print("\n=== contention resolved by the calendar ===")
-        for pid in team_week.MEMBERS:
+        for pid in tight_week.MEMBERS:
             mine = [ev for ev in events if _attended_by(ev, pid)]
             meeting_ends = {
                 ev["start_tick"] + ev["duration"]

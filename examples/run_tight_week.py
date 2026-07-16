@@ -5,7 +5,7 @@
 Builds ``pm.scenarios.tight_week`` into ``runs/tight_week/`` — a capacity-saturated
 ``GA`` board (1 epic, 5 stories, 66 pre-assigned tasks) whose estimates tile each
 member's free calendar segments between the eleven pre-booked meetings exactly.
-Worked in dependency + priority order (the default persona), the last task —
+Worked in dependency + priority order (the ``perfect`` persona), the last task —
 alice's GA sign-off — completes at exactly Friday 17:00, tick 2400 of 2400.
 
 Then it runs the bounded Mon 09:00 → Fri 17:00 loop with each engineer working

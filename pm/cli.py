@@ -21,13 +21,15 @@ from pm.exceptions import ConfigurationError
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.scenarios import test_dependency_blind_2, tight_week
+from pm.npc.persona import PRESETS
+from pm.scenarios import test_single_engineer, test_two_engineers, tight_week
 from pm.sim.simulation import Simulation
 from pm.viz import write_calendars, write_jira_tasks
 
 # Scenarios `pm sim` can build and drive (module must expose build/MEMBERS/PROJECT_ID).
 SCENARIOS = {
-    "test_dependency_blind_2": test_dependency_blind_2,
+    "test_single_engineer": test_single_engineer,
+    "test_two_engineers": test_two_engineers,
     "tight_week": tight_week,
 }
 
@@ -52,6 +54,10 @@ def sim(
         None, "--scenario",
         help=f"Scenario to build if the run does not exist ({' | '.join(SCENARIOS)}).",
     ),
+    persona: str = typer.Option(
+        "perfect", "--persona",
+        help=f"Member behavior persona used when building ({' | '.join(PRESETS)}).",
+    ),
 ) -> None:
     """Run the simulated work week: NPC coworkers work the board until Fri 17:00."""
     if run_id is None and scenario is None:
@@ -62,6 +68,10 @@ def sim(
         raise typer.BadParameter(
             f"unknown scenario {scenario!r} (choices: {', '.join(SCENARIOS)}).",
             param_hint="--scenario")
+    if persona not in PRESETS:
+        raise typer.BadParameter(
+            f"unknown persona {persona!r} (choices: {', '.join(PRESETS)}).",
+            param_hint="--persona")
     rid = run_id if run_id is not None else scenario
     assert rid is not None  # at least one of run_id/scenario is set above
 
@@ -71,9 +81,13 @@ def sim(
             raise typer.BadParameter(
                 f"no run database at {path}; pass --scenario to build one "
                 f"(choices: {', '.join(SCENARIOS)}).", param_hint="--scenario")
-        env = SCENARIOS[scenario].build(run_id=rid)
-        typer.echo(f"Built scenario '{scenario}' at {path.parent}/")
+        env = SCENARIOS[scenario].build(run_id=rid, member_persona=PRESETS[persona])
+        typer.echo(f"Built scenario '{scenario}' at {path.parent}/ (persona: {persona})")
     else:
+        if persona != "perfect":
+            raise typer.BadParameter(
+                f"run '{rid}' already exists; --persona only applies when building "
+                "a new run.", param_hint="--persona")
         env = Env.load(rid)
 
     name = env.store.get_meta("scenario") or ""

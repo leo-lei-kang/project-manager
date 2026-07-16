@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pm.db.store import Store
-from pm.npc.persona import DEFAULT, Persona, to_dict
+from pm.npc.persona import PERFECT, Persona, to_dict
 from pm.world.models import Person
 
 Kind = Literal["member", "stakeholder", "agent"]
@@ -31,7 +31,7 @@ class CastMember:
     goals: tuple[str, ...] = ()
     priorities: tuple[str, ...] = ()
     tone: str = ""
-    persona: Persona = DEFAULT  # how they work the board (see pm.npc.persona)
+    persona: Persona = PERFECT  # how they work the board (see pm.npc.persona)
 
 
 CAST: list[CastMember] = [

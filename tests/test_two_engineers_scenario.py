@@ -1,4 +1,4 @@
-"""The Dependency Blind 2 scenario: two engineers, zero slack, persona-decided.
+"""The Two Engineers scenario: two engineers, zero slack, persona-decided.
 
 Every odd task blocks the partner's next even task just-in-time, so the run is
 the proof: in dependency + priority order the last completion lands exactly on
@@ -16,8 +16,8 @@ from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.npc.persona import CHAOTIC, DEPENDENCY_BLIND
-from pm.scenarios.test_dependency_blind_2 import (
+from pm.npc.persona import FREE_SPIRIT
+from pm.scenarios.test_two_engineers import (
     DEPS,
     MEMBERS,
     PROJECT_ID,
@@ -86,23 +86,11 @@ def test_default_personas_finish_exactly_at_week_end(tmp_path):
     env.close()
 
 
-def test_chaotic_personas_do_not_finish(tmp_path):
-    # Random selection defers a blocker until the partner's ready pool runs dry;
-    # with zero slack the idle time cannot be absorbed. Deterministic per seed.
-    env = build(run_id="blind-chaos", root=tmp_path, member_persona=CHAOTIC)
-    api = _run_week(env)
-
-    assert env.clock.now() == WEEK_END_TICK
-    tasks = api.search(project_id=PROJECT_ID, issue_type="task")
-    done = sum(1 for t in tasks if t.status == "done")
-    assert 0 < done < 16  # both worked all week, but the board didn't finish
-    env.close()
-
-
-def test_dependency_blind_works_blocked_tickets_out_of_order(tmp_path):
-    # A dependency-blind engineer never idles (blocked tickets are candidates
-    # too), so the board finishes — but dependents start before their blockers.
-    env = build(run_id="blind-blind", root=tmp_path, member_persona=DEPENDENCY_BLIND)
+def test_free_spirit_works_blocked_tickets_out_of_order(tmp_path):
+    # A free_spirit engineer ignores dependencies and never idles (blocked tickets
+    # are candidates too), so the board finishes — but dependents start before their
+    # blockers.
+    env = build(run_id="blind-blind", root=tmp_path, member_persona=FREE_SPIRIT)
     api = _run_week(env)
 
     tasks = api.search(project_id=PROJECT_ID, issue_type="task")

@@ -1,4 +1,4 @@
-"""The "Dependency Blind 2" scenario — two engineers, no meetings, zero slack.
+"""The "Two Engineers" scenario — two engineers, no meetings, zero slack.
 
 Alice (backend) and Clare (frontend) each carry exactly 40 hours of work: eight
 300-minute tasks tiling the 2400-tick week. Half of each engineer's tasks depend
@@ -8,11 +8,15 @@ completion == the dependent's intended start). Total work equals total capacity,
 so only working the board in dependency + priority order finishes the week.
 
 ``build(member_persona=...)`` seeds both engineers with the given behavior
-persona (default: the standard priority/dependency-respecting one, which
-finishes at exactly Fri 17:00). Re-seed with :data:`pm.npc.persona.CHAOTIC` to
-watch an engineer strand their partner idle behind a deferred blocker — idle
-time the week cannot absorb — or :data:`pm.npc.persona.DEPENDENCY_BLIND` to
-watch blocked tickets get worked before the work they depend on.
+persona (default: :data:`pm.npc.persona.PERFECT`, which finishes at exactly Fri
+17:00). Re-seed with :data:`pm.npc.persona.FREE_SPIRIT` to watch engineers work
+blocked tickets before the work they depend on and strand each other idle behind
+deferred blockers — idle time the week cannot absorb.
+
+    uv run python -m pm.scenarios.test_two_engineers [persona]
+
+builds ``runs/test_two_engineers/`` with the named persona preset
+(:data:`pm.npc.persona.PRESETS`; default ``perfect``).
 """
 
 from __future__ import annotations
@@ -25,11 +29,11 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast
-from pm.npc.persona import DEFAULT, Persona
+from pm.npc.persona import PERFECT, PRESETS, Persona
 from pm.sim.clock import WEEK_END_TICK
 from pm.world.models import Project
 
-SCENARIO = "test_dependency_blind_2"
+SCENARIO = "test_two_engineers"
 PROJECT_ID = "CAP"
 
 CAST = [c for c in _FULL_CAST if c.id in ("alice", "clare")]  # backend + frontend
@@ -104,7 +108,7 @@ def _seed_board(env: Env) -> None:
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
-          force: bool = True, member_persona: Persona = DEFAULT) -> Env:
+          force: bool = True, member_persona: Persona = PERFECT) -> Env:
     """Create the run, seed the two engineers + cross-blocked board, snapshot ``seed.db``."""
     env = Env.make(SCENARIO, run_id, seed, force=force, root=root)
     cast = [replace(c, persona=member_persona) for c in CAST]
@@ -115,7 +119,12 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
 
 
 if __name__ == "__main__":
-    build()
-    print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (two engineers, 16 "
-          "cross-blocked tasks; in dependency + priority order the board finishes "
-          "at Fri 17:00 sharp).")
+    import sys
+
+    name = sys.argv[1] if len(sys.argv) > 1 else "perfect"
+    if name not in PRESETS:
+        sys.exit(f"unknown persona {name!r} (choices: {', '.join(PRESETS)})")
+    build(member_persona=PRESETS[name])
+    print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ with persona {name!r} "
+          "(two engineers, 16 cross-blocked tasks; in dependency + priority order "
+          "the board finishes at Fri 17:00 sharp).")

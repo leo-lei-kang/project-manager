@@ -21,3 +21,4 @@ __pycache__/
 
 # Secrets / local config (agent uses OPENROUTER_API_KEY)
 .env
+.DS_Store

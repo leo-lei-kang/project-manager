@@ -2,14 +2,16 @@
 
     uv run python examples/run_week.py
 
-Builds the "Team Week" scenario (``pm.scenarios.team_week``): the engineer cast
-from ``pm.npc.cast`` (Alice/Bob/Clare/David/Elieen plus the CTO), an assigned,
-dependency-linked Jira board (project ``TRANS`` — 1 epic, 3 stories, 8 tasks), and
-eleven pre-scheduled meetings. Then it runs the bounded simulation loop from the
-start of Monday to the end of Friday, one work-minute at a time, while each
-engineer autonomously works their assigned issues (``pm.npc.behavior``'s
-``assignee_pickup_hook``). Meetings fire on the clock and dependencies cascade —
-a finished blocker unblocks its dependents.
+Builds the "Two Engineers" scenario (``pm.scenarios.test_two_engineers``):
+two engineers — Alice (backend) and Clare (frontend) — with no meetings and an
+assigned, cross-blocked Jira board (project ``CAP`` — 1 epic, 2 stories, 16
+tasks; each engineer carries a full 40-hour week and every odd task blocks the
+partner's next even task just-in-time). Then it runs the bounded simulation loop
+from the start of Monday to the end of Friday, one work-minute at a time, while
+each engineer autonomously works their assigned issues (``pm.npc.behavior``'s
+``assignee_pickup_hook``). Dependencies cascade — a finished blocker unblocks
+its dependents — and worked in dependency + priority order the board finishes
+at exactly Friday 17:00.
 
 As each day closes it prints that day's report: the events that happened (meetings
 and board work) and the board's end-of-day issue states, so the week's progress is
@@ -26,7 +28,7 @@ from pathlib import Path
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.scenarios import team_week
+from pm.scenarios import test_two_engineers
 from pm.sim.clock import MINUTES_PER_WORKDAY, WEEKDAYS, WORKDAYS, format_tick
 from pm.sim.simulation import Simulation
 
@@ -48,19 +50,19 @@ def report_day(day: int, store, api: JiraApi) -> None:
             detail = e.payload.get("issue_key") or e.payload.get("title") or ""
             print(f"    {format_tick(e.sim_tick):>10}  {e.actor:<8} {e.kind:<20} {detail}")
     print("  end-of-day board:")
-    for i in api.search(project_id=team_week.PROJECT_ID, issue_type="task"):
+    for i in api.search(project_id=test_two_engineers.PROJECT_ID, issue_type="task"):
         print(f"    {i.id:<10} {i.title:<26} {i.status:<12} {i.assignee_id or '-'}")
 
 
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        env = team_week.build(run_id="week", root=Path(tmp), force=True)
+        env = test_two_engineers.build(run_id="week", root=Path(tmp), force=True)
         repo = JiraRepository(env.store)
         repo.ensure_schema()
         api = JiraApi(repo, env.engine)
         sim = Simulation(env)
 
-        pickup = assignee_pickup_hook(api, team_week.MEMBERS, team_week.PROJECT_ID)
+        pickup = assignee_pickup_hook(api, test_two_engineers.MEMBERS, test_two_engineers.PROJECT_ID)
 
         print(f"Simulating the work week, starting {sim.now_label()} "
               f"({env.scheduler.pending_count()} events queued)\n")
