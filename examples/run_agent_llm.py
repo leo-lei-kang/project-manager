@@ -1,16 +1,16 @@
 """Run the PM agent against a seeded board, with a model you pick — in-process.
 
-    uv run --extra agent python examples/run_agent_llm.py [MODEL] [PROMPT ...]
-    uv run --extra agent python examples/run_agent_llm.py --list
+    uv run python examples/run_agent_llm.py [MODEL] [PROMPT ...]
+    uv run python examples/run_agent_llm.py --list
 
 Seeds a throwaway world where one coworker clearly has the most Jira tickets
 (alice ×3, bob ×1, clare ×1), then wires the tools straight to the model via
 ``InProcessBackend`` (no server) and runs the loop.
 
-MODEL defaults to a free one from ``pm.agent.openrouter_agent.MODELS``; PROMPT
-defaults to "who has the most Jira tickets?". Needs ``OPENROUTER_API_KEY`` in
-``.env`` (see ``.env.example``) — free models cost nothing, paid ones bill your
-OpenRouter account.
+MODEL defaults to the OpenAI flagship from ``pm.agent.openrouter_agent.MODELS``;
+PROMPT defaults to "who has the most Jira tickets?". Needs ``OPENROUTER_API_KEY``
+in ``.env`` (see ``.env.example``) — free models cost nothing, paid ones bill
+your OpenRouter account.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from pm.npc.cast import seed_cast
 from pm.world.models import Project
 
 _RUN_ID = "run-agent-llm"
-_DEFAULT_MODEL = "openai/gpt-oss-20b:free"
+_DEFAULT_MODEL = "openai/gpt-5.5-pro"
 _DEFAULT_PROMPT = (
     "Which coworker is assigned the most Jira tickets on the 'checkout' board? "
     "Reply with just their first name."

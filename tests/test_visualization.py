@@ -10,7 +10,7 @@ from pm.db.store import Store
 from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
-from pm.scenarios import tight_week
+from pm.scenarios import team_with_jira
 from pm.sim.engine import Engine
 from pm.viz import write_calendars, write_jira_tasks
 from pm.viz.calendars import (
@@ -182,8 +182,8 @@ def test_load_blocks_covers_completed_runs_and_attendees(tmp_path):
 
 # -- end to end ----------------------------------------------------------------
 
-def test_writers_render_tight_week(tmp_path):
-    env = tight_week.build(run_id="e2e", root=tmp_path / "runs")
+def test_writers_render_team_with_jira(tmp_path):
+    env = team_with_jira.build(run_id="e2e", root=tmp_path / "runs")
     tasks = [i.id for i in JiraRepository(env.store).list_issues(issue_type="task")]
     env.close()
 

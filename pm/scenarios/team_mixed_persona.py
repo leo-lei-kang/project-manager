@@ -1,6 +1,6 @@
-"""The "Tight Week, Mixed" scenario — the saturated team week, unmanaged, mixed personas.
+"""The "Team, Mixed Personas" scenario — the saturated team week, unmanaged, mixed personas.
 
-Same board + meeting fabric as :mod:`pm.scenarios.tight_week` (66 tasks tiling five
+Same board + meeting fabric as :mod:`pm.scenarios.team_with_jira` (66 tasks tiling five
 members' meeting-free calendars), but bob and elieen work as
 :data:`~pm.npc.persona.FREE_SPIRIT` and clare as :data:`~pm.npc.persona.HEADS_DOWN`
 (alice and david stay perfect). With no PM the mix cannot finish the zero-slack week —
@@ -15,12 +15,12 @@ from pathlib import Path
 from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import FREE_SPIRIT, HEADS_DOWN, Persona
-from pm.scenarios.tight_week import CAST as CAST
-from pm.scenarios.tight_week import MEMBERS as MEMBERS
-from pm.scenarios.tight_week import PROJECT_ID as PROJECT_ID
-from pm.scenarios.tight_week import _schedule_meetings, _seed_board
+from pm.scenarios.team_with_jira import CAST as CAST
+from pm.scenarios.team_with_jira import MEMBERS as MEMBERS
+from pm.scenarios.team_with_jira import PROJECT_ID as PROJECT_ID
+from pm.scenarios.team_with_jira import _schedule_meetings, _seed_board
 
-SCENARIO = "tight_week_mixed"
+SCENARIO = "team_mixed_persona"
 
 # The mix that misses the saturated week unmanaged.
 MIXED: dict[str, Persona] = {

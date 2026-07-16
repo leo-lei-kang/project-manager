@@ -1,4 +1,4 @@
-"""The "Tight Week" scenario — a GA-hardening week the team can *barely* finish.
+"""The "Team with Jira" scenario — a GA-hardening week the team can *barely* finish.
 
 The six-person cast (five implementers + the CTO) shares a standard meeting
 fabric — daily standups, Alice's 1:1s, a Wednesday ad-hoc, and the Friday team
@@ -39,7 +39,7 @@ from pm.sim.events import MeetingEvent
 from pm.transcript import standup_transcript
 from pm.world.models import Project
 
-SCENARIO = "tight_week"
+SCENARIO = "team_with_jira"
 PROJECT_ID = "GA"
 
 # The scenario cast: the five implementers from pm.npc.cast plus the CTO.

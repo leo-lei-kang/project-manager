@@ -1,6 +1,6 @@
 """Authored standup transcripts — the meeting record the PM reviews.
 
-One markdown file per tight_week standup (``standup-0.md`` … ``standup-4.md``,
+One markdown file per team_with_jira standup (``standup-0.md`` … ``standup-4.md``,
 Mon–Fri). The scenario wires each file in as the standup's ``transcript_body``;
 when the meeting ends, :class:`~pm.sim.events.MeetingEvent` persists it to the
 ``transcript`` table with ``available_tick`` = the meeting's end, and the agent
@@ -26,7 +26,7 @@ def _read(name: str) -> str:
 def standup_transcript(day: int, prefix: str = "standup") -> str:
     """The authored markdown transcript for weekday ``day`` (0=Mon .. 4=Fri).
 
-    ``prefix`` selects the transcript set: ``standup`` (tight_week's week) or
+    ``prefix`` selects the transcript set: ``standup`` (team_with_jira's week) or
     ``no-jira`` (the team_no_jira week).
     """
     if not 0 <= day < STANDUP_DAYS:

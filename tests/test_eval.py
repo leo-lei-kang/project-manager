@@ -1,4 +1,4 @@
-"""The evaluator: hours completed, week-goal verdict, per-person breakdown."""
+"""The evaluator: project-completion verdict, closed Jira hours, per-person breakdown."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.persona import FREE_SPIRIT
-from pm.scenarios.tight_week import MEMBERS, PROJECT_ID, build
+from pm.scenarios import runner, team_no_jira, team_partial_jira
+from pm.scenarios.team_with_jira import MEMBERS, PROJECT_ID, build
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
 
-EXPECTED_MINUTES = {"alice": 2025, "bob": 2115, "clare": 2115, "david": 2160, "elieen": 2160}
 EXPECTED_COUNTS = {"alice": 16, "bob": 13, "clare": 13, "david": 12, "elieen": 12}
 
 
@@ -27,42 +27,69 @@ def _run(tmp_path, run_id, **kwargs):
     return env
 
 
-def test_accomplished_week(tmp_path):
+def test_board_project_done(tmp_path):
     env = _run(tmp_path, "eval-ok")
     report = evaluate(env.store)
 
     assert report.goal_accomplished
+    assert report.source == "board"  # no informal tasks: the Jira board stands in
     assert report.project_id == PROJECT_ID
     assert report.done_tasks == report.total_tasks == 66
-    assert report.done_minutes == report.total_minutes == 10575  # 176.25h
-    assert report.last_done_tick == 2400 and report.deadline_tick == 2400
+    assert report.closed_jira_minutes == report.total_jira_minutes == 10575  # 176.25h
     assert report.remaining == []
     assert {p.person_id: len(p.done) for p in report.people} == EXPECTED_COUNTS
-    assert {p.person_id: p.done_minutes for p in report.people} == EXPECTED_MINUTES
     assert all(p.remaining == [] for p in report.people)
 
     text = format_report(report)
-    assert "ACCOMPLISHED" in text and "176.25h" in text and "none" in text
+    assert "PROJECT DONE" in text and "NOT DONE" not in text
+    assert "176.25h" in text and "none" in text
     env.close()
 
 
-def test_unfinished_week(tmp_path):
+def test_board_project_unfinished(tmp_path):
     env = _run(tmp_path, "eval-chaos", member_persona=FREE_SPIRIT)
     report = evaluate(env.store)
 
     assert not report.goal_accomplished
     assert 0 < report.done_tasks < 66
-    assert 0 < report.done_minutes < report.total_minutes
+    assert 0 < report.closed_jira_minutes < report.total_jira_minutes
     assert report.remaining  # unfinished tasks are reported
     # every remaining task is carried in exactly one person's remaining list
     carried = [t.id for p in report.people for t in p.remaining]
     assert sorted(carried) == sorted(t.id for t in report.remaining)
-    assert "NOT ACCOMPLISHED" in format_report(report)
+    assert "PROJECT NOT DONE" in format_report(report)
     env.close()
 
 
-def test_deadline_miss(tmp_path):
-    # All tasks done, but the last completion lands after the project deadline.
+def test_notes_project_not_done_despite_empty_board(tmp_path):
+    # The board says nothing is happening; the notes show the project at 4/6.
+    env = team_no_jira.build(run_id="eval-nj", root=tmp_path)
+    runner.drive(env, team_no_jira)
+    report = evaluate(env.store)
+
+    assert report.source == "notes"
+    assert (report.done_tasks, report.total_tasks) == (4, 6)
+    assert not report.goal_accomplished
+    assert report.closed_jira_minutes == report.total_jira_minutes == 0
+    assert {t.id for t in report.remaining} == {"NOTES-4", "NOTES-5"}
+    env.close()
+
+
+def test_notes_project_not_done_despite_green_board(tmp_path):
+    # Every filed ticket closes, but the notes show the project is twice the board.
+    env = team_partial_jira.build(run_id="eval-pj", root=tmp_path)
+    runner.drive(env, team_partial_jira)
+    report = evaluate(env.store)
+
+    assert report.source == "notes"
+    assert (report.done_tasks, report.total_tasks) == (4, 6)
+    assert not report.goal_accomplished
+    assert report.closed_jira_minutes == report.total_jira_minutes == 1200  # the filed subset
+    env.close()
+
+
+def test_no_deadline_check(tmp_path):
+    # A completion after the project deadline still counts: only doneness is graded.
     env = Env.make(run_id="eval-late", root=tmp_path)
     env.store.add_project(Project(id="late", name="Late", deadline_tick=10))
     repo = JiraRepository(env.store)
@@ -72,10 +99,10 @@ def test_deadline_miss(tmp_path):
                          estimate_minutes=60, updated_tick=20))
 
     report = evaluate(env.store)
+    assert report.source == "board"
     assert report.done_tasks == report.total_tasks == 1
-    assert report.last_done_tick == 20 and report.deadline_tick == 10
-    assert not report.goal_accomplished
-    assert "missed" in format_report(report)
+    assert report.goal_accomplished
+    assert report.closed_jira_minutes == report.total_jira_minutes == 60
     env.close()
 
 
@@ -92,6 +119,6 @@ def test_project_resolution(tmp_path):
     with pytest.raises(ConfigurationError):
         evaluate(env.store, project_id="nope")  # unknown project
 
-    report = evaluate(env.store, project_id="p1")  # explicit id: empty board
+    report = evaluate(env.store, project_id="p1")  # explicit id: no tasks anywhere
     assert report.total_tasks == 0 and not report.goal_accomplished
     env.close()

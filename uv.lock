@@ -525,14 +525,10 @@ name = "pm-sim"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "pydantic" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-agent = [
     { name = "openai" },
+    { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -547,12 +543,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "openai", marker = "extra == 'agent'", specifier = ">=1.0" },
+    { name = "openai", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.6" },
-    { name = "python-dotenv", marker = "extra == 'agent'", specifier = ">=1.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["agent"]
 
 [package.metadata.requires-dev]
 dev = [

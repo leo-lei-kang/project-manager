@@ -55,9 +55,11 @@ reproducible replays (`Env.reset`) and diffable grading (seed → current).
 All access goes through **`Store`** (`pm/db/store.py`), the only place raw SQL
 lives. It maps `sqlite3.Row` objects ↔ the Pydantic entities in
 `pm/world/models.py`, and during a run the engine is the **sole writer**. The DDL
-is `pm/db/schema.sql`; the Jira board adds its own `issue` / `issue_dependency`
-tables via `pm/jira/repository.py` (idempotent `CREATE TABLE IF NOT EXISTS`, no
-edit to the core schema). Because state is plain SQLite plus an append-only
+is `pm/db/schema.sql` — including the informal `task` table, a meeting-notes
+mirror of Jira (see [Meetings, transcripts & informal
+tasks](#meetings-transcripts--informal-tasks)); the Jira board adds its own
+`issue` / `issue_dependency` tables via `pm/jira/repository.py` (idempotent
+`CREATE TABLE IF NOT EXISTS`, no edit to the core schema). Because state is plain SQLite plus an append-only
 `event_log` trace, any run is auditable with the stock `sqlite3` CLI.
 
 ## Operator surface (scenario-keyed)
@@ -82,6 +84,40 @@ review hook (`agent_review_hook`, run first so a same-tick close/directive lands
 the person it steers picks), runs the week, and fires a final PM close-out. The registered
 scenarios and their verified outcomes are cataloged in
 [`pm/scenarios/scenarios.md`](../pm/scenarios/scenarios.md).
+
+## Meetings, transcripts & informal tasks
+
+**Every meeting leaves a transcript.** When a `MeetingEvent` completes
+(`pm/sim/events.py::MeetingEvent._on_done`; the activity path in
+`pm/sim/activity.py` gives the same guarantee), the engine writes a `Transcript`
+row with `available_tick = now` — empty body unless the payload carries
+`transcript_body`. `available_tick` gates discoverability:
+`AgentTools.read_transcripts` only surfaces transcripts of meetings that have
+already ended.
+
+The same `_on_done` upserts **informal tasks**: each entry in the meeting
+payload's `tasks` list becomes a row in the `task` table (`Task` in
+`pm/world/models.py`, written via `Store.upsert_task` / read via `list_tasks`) —
+a meeting-notes mirror of Jira carrying an id, title, DRI, and
+`todo | in_progress | done` status. An update merges with the existing row and
+preserves `source_meeting_id` and `created_tick`, so work can be created,
+handed off, and closed entirely inside meetings without a Jira ticket ever
+being filed.
+
+The `team_*` scenarios are built on that split. The "Meeting Transcripts v1"
+brief and its six-task breakdown (`NOTES-1…6`, each with DRI, status, and
+estimate) live in one parsed source, `pm/transcript/project.md`
+(`pm/transcript/__init__.py::project_tasks`).
+`pm/scenarios/project_board.py::seed_project_board(env, jira_ids=…)` adds the
+project row and files Jira tickets **only for the selected ids** —
+`team_no_jira` files none (the board stays empty all week),
+`team_partial_jira` files three of six — while the full breakdown always
+reaches the `task` table through the Monday kickoff's payload, and the later
+standups' payloads advance the statuses. So `read_jira_board` can look empty
+or healthy while the transcripts and the `task` table hold the real project —
+and `pm eval` (`pm/eval/report.py`) grades "every project task done" from the
+informal table, falling back to the board's leaf `task` issues only when a run
+has no informal tasks (hours stay Jira-sourced).
 
 ## How events are scheduled
 

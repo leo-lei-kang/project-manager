@@ -8,11 +8,11 @@ personas. Every row below was actually run; the outcome column is the observed
 
 - `test_single_engineer` — alice alone, 60 h of tickets in a 40-h week: 7
   high-priority launch blockers (35 h) + 5 backlog items (25 h). Exactly eight
-  tasks fit; triage decides *which* eight. The goal line is NOT ACCOMPLISHED by
+  tasks fit; triage decides *which* eight. The goal line is PROJECT NOT DONE by
   design — the success criterion is "all 7 launch blockers ship".
 - `test_two_engineers` — alice (backend) + clare (frontend), 40 h each, zero
   slack: every odd task blocks the partner's next even task just-in-time.
-- `tight_week` — the five-member team + meetings, 66 tasks tiling every
+- `team_with_jira` — the five-member team + meetings, 66 tasks tiling every
   member's meeting-free calendar exactly; zero slack.
 
 **Personas** (baked into each scenario; see `pm/npc/persona.py`):
@@ -27,7 +27,7 @@ personas. Every row below was actually run; the outcome column is the observed
 **PM levers** — the world reacts to Slack (`pm/npc/reactions.py:_on_slack_send`):
 a message naming a person closes their `in_review` work, and a "please pick up
 <KEY>" directive bumps that ticket to priority 0 — the level even a free spirit
-works first. These are the levers a PM agent steers with (`pm-agent`'s only
+works first. These are the levers a PM agent steers with (the agent's only
 *action* tool is `send_slack`). The visibility-only variant
 `test_single_engineer_with_agent` posts highlights that steer nothing — the
 contrast case; a scenario may expose `agent_review_hook`, which `pm sim`
@@ -50,10 +50,16 @@ breakdown as Jira tickets:
   the meeting notes only** (the informal `task` table mirrors them as each
   meeting ends); by Friday four are done and two carry over, and the Jira
   board never held a ticket. `read_jira_board` says nothing is happening;
-  `read_transcripts` tells the truth.
+  `read_transcripts` tells the truth. Eval: PROJECT NOT DONE — 4/6 (source:
+  notes), 0h of Jira tickets closed.
 - `team_partial_jira` — three of the six were filed (and get worked on the
   board as usual); the other three live only in the notes. The board looks
-  healthy but the project is twice its size.
+  healthy but the project is twice its size. Eval: PROJECT NOT DONE — 4/6
+  (source: notes), all 20h of filed tickets closed.
+
+`pm eval` grades exactly this: project completion from the informal task table
+(falling back to the Jira board when a run has none, as on the boards above),
+plus the hours of Jira tickets closed — no deadline check.
 
 ## The five scenarios
 
@@ -61,9 +67,9 @@ breakdown as Jira tickets:
 |---|------|----------|------------------|
 | 1 | single engineer | `perfect` | 8/12 done; **all 7 launch blockers ship** |
 | 2 | single engineer | `free_spirit` | 8/12 done; **2 launch blockers left** at Fri 17:00 |
-| 3 | two engineers | `perfect` | **ACCOMPLISHED** — 16/16, last completion exactly Fri 17:00 |
-| 4 | two engineers | alice=`free_spirit`, clare=`heads_down` | **NOT ACCOMPLISHED** — 8/16; clare's work sits `in_review`, handoffs stall |
-| 5 | team (tight_week) | mixed: bob+elieen `free_spirit`, clare `heads_down`, rest `perfect` | **NOT ACCOMPLISHED** — 45/66 |
+| 3 | two engineers | `perfect` | **PROJECT DONE** — 16/16, last completion exactly Fri 17:00 |
+| 4 | two engineers | alice=`free_spirit`, clare=`heads_down` | **PROJECT NOT DONE** — 8/16; clare's work sits `in_review`, handoffs stall |
+| 5 | team (team_with_jira) | mixed: bob+elieen `free_spirit`, clare `heads_down`, rest `perfect` | **PROJECT NOT DONE** — 45/66 |
 
 ## Running them
 
@@ -75,11 +81,11 @@ uv run pm sim --scenario test_single_engineer              # 1
 uv run pm sim --scenario test_single_engineer_free_spirit  # 2
 uv run pm sim --scenario test_two_engineers                # 3
 uv run pm sim --scenario test_two_engineers_mixed          # 4
-uv run pm sim --scenario tight_week_mixed                  # 5
+uv run pm sim --scenario team_mixed_persona                  # 5
 ```
 
-Two more scenarios round out the set: `tight_week` (the team all `perfect` —
-66/66 ACCOMPLISHED) and `test_single_engineer_with_agent` (the visibility-only
+Two more scenarios round out the set: `team_with_jira` (the team all `perfect` —
+66/66 PROJECT DONE) and `test_single_engineer_with_agent` (the visibility-only
 PM: highlights that steer nothing, so the outcome equals row 2).
 
 Then `uv run pm eval --scenario <name>` for the goal line (also written to
@@ -88,10 +94,9 @@ ticket timeline. Everything for a scenario lives under `runs/<name>/`.
 
 ## Driving a run with the LLM agent
 
-The `pm-agent` LLM's only *action* tool is `send_slack`, so it steers the world
-through the two Slack levers above — its messages arrive on the model's own
-review cadence. To drive a run with the agent, seed a scenario without
-simulating (`uv run python -m pm.scenarios.test_single_engineer_free_spirit`),
-then drive it in-process with
-`PM_RUN_ID=test_single_engineer_free_spirit uv run pm-agent "..."` — see the
+The LLM agent's only *action* tool is `send_slack`, so it steers the world
+through the two Slack levers above. Inside a simulated week it runs as a
+scenario's `agent_review_hook`, which the runner (`pm/scenarios/runner.py`)
+composes into the sim loop. To exercise the LLM loop itself against a seeded
+throwaway board, run `uv run python examples/run_agent_llm.py` — see the
 README's [Agent](../../README.md#agent) section.

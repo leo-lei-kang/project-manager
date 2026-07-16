@@ -1,7 +1,7 @@
 """Authored standup transcripts: the .md content, availability gating, and the
 PM's read tool.
 
-The scenario hook under test: each tight_week standup persists a markdown
+The scenario hook under test: each team_with_jira standup persists a markdown
 transcript when it ends, carrying the week-long thread about an off-board
 request (live caption translation — Bob offers, Alice pushes back, the PM must
 prioritize). The agent reviews them via ``AgentTools.read_transcripts``.
@@ -15,7 +15,7 @@ from pm.agent.tools import AgentTools
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.scenarios import tight_week
+from pm.scenarios import team_with_jira
 from pm.sim.simulation import Simulation
 from pm.transcript import STANDUP_DAYS, standup_transcript
 
@@ -37,7 +37,7 @@ def test_monday_raises_the_off_board_conflict():
 
 
 def test_transcripts_become_available_as_standups_end(tmp_path):
-    env = tight_week.build(run_id="tw", root=tmp_path)
+    env = team_with_jira.build(run_id="tw", root=tmp_path)
 
     # Monday's standup runs 11:00-11:30 (ticks 120-150): nothing before it ends.
     env.engine.advance(149)
@@ -58,7 +58,7 @@ def test_transcripts_become_available_as_standups_end(tmp_path):
 def test_every_meeting_leaves_a_transcript_by_default(tmp_path):
     # The 1:1s carry no transcript_id/body in their payload; they still leave an
     # (empty) transcript when they end — Monday's 1:1 runs 14:00-14:30.
-    env = tight_week.build(run_id="tw-default", root=tmp_path)
+    env = team_with_jira.build(run_id="tw-default", root=tmp_path)
     env.engine.advance(330)  # Mon 14:30
     one_on_one = [t for t in env.store.list_transcripts(available_by=env.clock.now())
                   if t.meeting_id.startswith("1on1")]
@@ -68,13 +68,13 @@ def test_every_meeting_leaves_a_transcript_by_default(tmp_path):
 
 
 def test_agent_reads_transcripts_with_meeting_context(tmp_path):
-    env = tight_week.build(run_id="tw-agent", root=tmp_path)
+    env = team_with_jira.build(run_id="tw-agent", root=tmp_path)
     tools = AgentTools(env)
     assert tools.read_transcripts() == []  # nothing has happened yet
 
     api = JiraApi(JiraRepository(env.store), env.engine)
     Simulation(env).run(
-        on_tick=assignee_pickup_hook(api, tight_week.MEMBERS, tight_week.PROJECT_ID))
+        on_tick=assignee_pickup_hook(api, team_with_jira.MEMBERS, team_with_jira.PROJECT_ID))
 
     seen = tools.read_transcripts()
     assert len(seen) == 11  # every meeting leaves a transcript now

@@ -28,8 +28,8 @@ from pm.scenarios import (
     test_single_engineer_with_agent,
     test_two_engineers,
     test_two_engineers_mixed,
-    tight_week,
-    tight_week_mixed,
+    team_with_jira,
+    team_mixed_persona,
 )
 from pm.sim.simulation import Simulation
 from pm.viz import write_calendars, write_jira_tasks
@@ -44,8 +44,8 @@ SCENARIOS = {
     "test_single_engineer_with_agent": test_single_engineer_with_agent,
     "test_two_engineers": test_two_engineers,
     "test_two_engineers_mixed": test_two_engineers_mixed,
-    "tight_week": tight_week,
-    "tight_week_mixed": tight_week_mixed,
+    "team_with_jira": team_with_jira,
+    "team_mixed_persona": team_mixed_persona,
 }
 
 app = typer.Typer(
@@ -111,7 +111,7 @@ def eval_cmd(
         False, "--json", help="Emit the evaluation report as JSON to stdout."
     ),
 ) -> None:
-    """Evaluate the run's Jira outcomes and write runs/<scenario>/eval.json."""
+    """Grade the run's project completion and write runs/<scenario>/eval.json."""
     path = _db_path(scenario)
     if not path.exists():
         raise typer.BadParameter(

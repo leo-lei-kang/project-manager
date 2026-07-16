@@ -1,6 +1,6 @@
 """Weekly calendar per person from a run's ``world.db``, rendered to static HTML.
 
-    uv run python examples/visualize_calendars.py <run_id>   # e.g. tight_week
+    uv run python examples/visualize_calendars.py <run_id>   # e.g. team_with_jira
 
 Thin wrapper over :func:`pm.viz.write_calendars`: reads
 ``runs/<run_id>/world.db`` and writes ``runs/<run_id>/calendars.html`` — one
@@ -19,7 +19,7 @@ from pm.viz import write_calendars
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_id", help="run id under runs/, e.g. tight_week")
+    parser.add_argument("run_id", help="run id under runs/, e.g. team_with_jira")
     args = parser.parse_args(argv)
     try:
         out = write_calendars(args.run_id)

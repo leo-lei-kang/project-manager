@@ -23,15 +23,15 @@ _HIGH_PRIORITY = 1
 # name -> (done_tasks, total_tasks, goal_accomplished, launch_blockers_left)
 # blockers_left is None for the non-solo boards. Verified at seed 42 (scenarios.md).
 EXPECTED = {
-    "team_no_jira":                     (0, 0, False, None),
-    "team_partial_jira":                (3, 3, True, None),
+    "team_no_jira":                     (4, 6, False, None),
+    "team_partial_jira":                (4, 6, False, None),
     "test_single_engineer":             (8, 12, False, 0),
     "test_single_engineer_free_spirit": (8, 12, False, 2),
     "test_single_engineer_with_agent":  (8, 12, False, 2),
     "test_two_engineers":               (16, 16, True, None),
     "test_two_engineers_mixed":         (8, 16, False, None),
-    "tight_week":                       (66, 66, True, None),
-    "tight_week_mixed":                 (45, 66, False, None),
+    "team_with_jira":                   (66, 66, True, None),
+    "team_mixed_persona":               (45, 66, False, None),
 }
 
 

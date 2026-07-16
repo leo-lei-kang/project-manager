@@ -159,17 +159,17 @@
     <tr><td><span class="path">pm/db/</span></td><td><span class="chip db">persistence</span></td>
         <td><code>database.py</code> (raw sqlite3 wrapper), <code>store.py</code> (the only typed mutation interface), <code>schema.sql</code>.</td></tr>
     <tr><td><span class="path">pm/world/</span></td><td><span class="chip db">persistence</span></td>
-        <td>Pydantic entities: Person, Project, Channel, Message, Email, Meeting, Transcript, Document, LogEntry.</td></tr>
+        <td>Pydantic entities: Person, Project, Channel, Message, Email, Meeting, Transcript, Task (informal), Document, LogEntry.</td></tr>
     <tr><td><span class="path">pm/npc/</span></td><td><span class="chip npc">npc</span></td>
         <td>Cast roster, personas, per-tick work-pickup hooks (<code>behavior.py</code>), and per-event reactions.</td></tr>
     <tr><td><span class="path">pm/agent/</span></td><td><span class="chip agent">agent</span></td>
-        <td>The PM agent-under-test: <code>AgentTools</code> capability surface, FastMCP server, OpenRouter LLM loop.</td></tr>
+        <td>The PM agent-under-test: <code>AgentTools</code> capability surface + the in-process OpenRouter LLM loop.</td></tr>
     <tr><td><span class="path">pm/jira/</span></td><td><span class="chip jira">jira</span></td>
         <td>Jira-shaped subsystem: Issue models, repository (adds <code>issue</code>/<code>issue_dependency</code> tables), <code>JiraApi</code> (transitions, derived-blocked).</td></tr>
     <tr><td><span class="path">pm/scenarios/</span></td><td><span class="chip drv">driver</span></td>
-        <td>Scenario modules (seeded casts + boards + meetings), the shared <code>runner.drive</code> loop, and a procedural generator.</td></tr>
+        <td>Scenario modules (seeded casts + boards + meetings), the shared <code>runner.drive</code> loop, the <code>project_board.py</code> seeder, and a procedural generator.</td></tr>
     <tr><td><span class="path">pm/transcript/</span></td><td><span class="chip drv">driver</span></td>
-        <td>Authored standup transcripts (<code>standup-0.md</code>…<code>standup-4.md</code>) surfaced through meetings.</td></tr>
+        <td><code>project.md</code> — the parsed project brief + task breakdown — plus authored transcripts (<code>standup-*.md</code>, <code>no-jira-*.md</code>) surfaced through meetings.</td></tr>
     <tr><td><span class="path">pm/env/</span></td><td><span class="chip drv">driver</span></td>
         <td><code>Env</code> facade — owns the Store and the Engine for one run.</td></tr>
     <tr><td><span class="path">pm/eval/</span>, <span class="path">pm/viz/</span></td><td><span class="chip drv">driver</span></td>
@@ -214,21 +214,14 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <text class="t" x="822" y="38" text-anchor="middle">LLMAgent</text>
   <text class="s" x="822" y="54" text-anchor="middle">agent/openrouter_agent.py — tool loop</text>
 
-  <rect class="bx-agent" x="700" y="98" width="244" height="46"/>
-  <text class="t" x="822" y="118" text-anchor="middle">MCP server “pm-agent”</text>
-  <text class="s" x="822" y="134" text-anchor="middle">agent/mcp_server.py · streamable-http :8765</text>
-
   <rect class="bx-agent" x="700" y="178" width="244" height="88"/>
   <text class="t" x="822" y="198" text-anchor="middle">AgentTools — agent/tools.py</text>
   <text class="m" x="822" y="218" text-anchor="middle">send_slack  (costs sim-time)</text>
   <text class="m" x="822" y="234" text-anchor="middle">read_slack · read_jira_board</text>
   <text class="m" x="822" y="250" text-anchor="middle">read_calendar · read_transcripts</text>
 
-  <line class="edge" x1="822" y1="64" x2="822" y2="96" marker-end="url(#arr)"/>
-  <text class="el" x="830" y="84">McpBackend</text>
-  <line class="edge" x1="822" y1="144" x2="822" y2="176" marker-end="url(#arr)"/>
-  <path class="edge dash" d="M 944 41 C 984 70 984 160 946 200" marker-end="url(#arr)"/>
-  <text class="el" x="822" y="284" text-anchor="middle">dashed bypass: InProcessBackend (tests) — no MCP server</text>
+  <line class="edge" x1="822" y1="64" x2="822" y2="176" marker-end="url(#arr)"/>
+  <text class="el" x="814" y="120" text-anchor="end">InProcessBackend — direct tool calls</text>
 
   <!-- Row B: Simulation -->
   <rect class="bx-sim" x="166" y="110" width="300" height="48"/>
@@ -280,7 +273,7 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <rect class="bx-sim" x="16" y="498" width="430" height="64"/>
   <text class="t" x="231" y="518" text-anchor="middle">Event effects — sim/events.py</text>
   <text class="s" x="231" y="534" text-anchor="middle">_on_start / _on_done → messages · emails · meetings</text>
-  <text class="s" x="231" y="549" text-anchor="middle">transcripts · Jira transitions (via JiraApi)</text>
+  <text class="s" x="231" y="549" text-anchor="middle">transcripts · informal tasks · Jira transitions (via JiraApi)</text>
 
   <rect class="bx-npc" x="470" y="498" width="206" height="64"/>
   <text class="t" x="573" y="518" text-anchor="middle">reactions.react</text>
@@ -297,7 +290,7 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <rect class="bx-db" x="16" y="592" width="928" height="72"/>
   <text class="t" x="480" y="612" text-anchor="middle">SQLite — runs/&lt;id&gt;/world.db · single source of truth (db/store.py → db/database.py)</text>
   <text class="m" x="480" y="632" text-anchor="middle">meta(current_tick) · event (the queue) · event_log · occupancy · person · channel/message · email · meeting</text>
-  <text class="m" x="480" y="648" text-anchor="middle">transcript · document  +  issue / issue_dependency (pm/jira)  +  activity (sim/activity)</text>
+  <text class="m" x="480" y="648" text-anchor="middle">transcript · task (informal) · document  +  issue / issue_dependency (pm/jira)  +  activity (sim/activity)</text>
 
   <line class="edge" x1="231" y1="562" x2="231" y2="590" marker-end="url(#arr)"/>
   <text class="el" x="240" y="580">single writer: Store</text>
@@ -313,7 +306,7 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <line class="edge dash" x1="511" y1="664" x2="511" y2="692" marker-end="url(#arr)"/>
 </svg>
 <figcaption>The driving loop (CLI → scenario → runner → Simulation → Engine → Store) and the agent path
-(LLM → MCP → AgentTools). Reads are free; the only agent mutation, <code>send_slack</code>, goes through
+(LLM → AgentTools, in-process). Reads are free; the only agent mutation, <code>send_slack</code>, goes through
 <code>perform_action</code> and therefore costs sim-time.</figcaption>
 </figure>
 
@@ -440,7 +433,9 @@ on that row, not a second record). The engine rehydrates the right subclass from
         <span class="s">kind ∈ standup | adhoc | 1on1 | team</span></td>
         <td>durative</td><td>100</td>
         <td><code>store.add_meeting</code> — the meeting begins</td>
-        <td><code>store.add_transcript</code> — transcript becomes available at the end tick</td></tr>
+        <td><code>store.add_transcript</code> — <em>every</em> meeting leaves a transcript at its end tick
+            (empty body by default); payload <code>tasks</code> are upserted into the informal
+            <code>task</code> table</td></tr>
     <tr><td><code>ooo</code></td><td><code>OOOEvent</code></td>
         <td>durative (hours → days)</td><td>200</td>
         <td>no-op</td><td>no-op — the <em>effect</em> is the calendar occupancy itself</td></tr>
@@ -562,7 +557,7 @@ every started activity, completes those hitting zero, then re-dispatches.</figca
 <table>
   <thead><tr><th>Kind</th><th>Priority</th><th>on_start</th><th>on_done</th></tr></thead>
   <tbody>
-    <tr><td><code>meeting</code></td><td>100</td><td><code>add_meeting</code></td><td><code>add_transcript</code> (if a transcript is attached)</td></tr>
+    <tr><td><code>meeting</code></td><td>100</td><td><code>add_meeting</code></td><td><code>add_transcript</code> (always — empty body by default)</td></tr>
     <tr><td><code>jira_work</code></td><td>40</td><td>—</td><td>log <code>ticket.worked</code> (records that work happened; does not track an issue)</td></tr>
     <tr><td><code>write_doc</code></td><td>35</td><td>—</td><td><code>add_document</code></td></tr>
     <tr><td><code>review_doc</code></td><td>30</td><td>—</td><td>log <code>doc.reviewed</code></td></tr>
@@ -678,7 +673,7 @@ already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agen
       the level even a <em>freestyle</em> persona works first.</li>
 </ul>
 
-<h3>Tool surface — <span class="path">pm/agent/tools.py</span> → MCP <span class="path">pm/agent/mcp_server.py</span></h3>
+<h3>Tool surface — <span class="path">pm/agent/tools.py</span></h3>
 <table>
   <thead><tr><th>Tool</th><th>Kind</th><th>Sim-time cost</th><th>What it does</th></tr></thead>
   <tbody>
@@ -699,11 +694,12 @@ already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agen
   </tbody>
 </table>
 
-<p>The FastMCP server <code>"pm-agent"</code> exposes exactly these five as <code>@mcp.tool()</code>
-functions (name = function, description = docstring, schema = typed signature) over streamable-http
-(<code>PM_MCP_HOST</code>/<code>PM_MCP_PORT</code>, default <code>127.0.0.1:8765</code>). Its
-<code>lifespan</code> binds <code>AgentTools</code> to the run named by <code>PM_RUN_ID</code>
-(root <code>PM_RUNS_ROOT</code>).</p>
+<p>There is no server between the model and the sim. <code>LLMAgent</code>
+(<span class="path">agent/openrouter_agent.py</span>) runs a model ⇄ tool-call loop (max 12 steps) over
+<code>InProcessBackend</code>, which binds exactly these five tools directly to an
+<code>AgentTools</code> instance for the run (name = method, schema =
+<code>_AGENT_TOOL_SCHEMAS</code>). Models come from OpenRouter (OpenAI-compatible API); the
+<code>pm-agent</code> CLI drives the loop against a prepared run.</p>
 
 <figure>
 <svg viewBox="0 0 920 375" role="img" aria-label="PM agent interaction sequence">
@@ -713,45 +709,40 @@ functions (name = function, description = docstring, schema = typed signature) o
     </marker>
   </defs>
   <!-- lifeline headers -->
-  <rect class="bx-agent" x="20"  y="10" width="140" height="36"/>
-  <text class="t" x="90"  y="32" text-anchor="middle">LLM PM (LLMAgent)</text>
-  <rect class="bx-agent" x="200" y="10" width="140" height="36"/>
-  <text class="t" x="270" y="32" text-anchor="middle">MCP server</text>
-  <rect class="bx-agent" x="380" y="10" width="140" height="36"/>
-  <text class="t" x="450" y="32" text-anchor="middle">AgentTools</text>
-  <rect class="bx-sim" x="560" y="10" width="140" height="36"/>
-  <text class="t" x="630" y="32" text-anchor="middle">Engine</text>
-  <rect class="bx-db" x="740" y="10" width="160" height="36"/>
-  <text class="t" x="820" y="32" text-anchor="middle">World (Store + NPCs)</text>
+  <rect class="bx-agent" x="30"  y="10" width="140" height="36"/>
+  <text class="t" x="100" y="32" text-anchor="middle">LLM PM (LLMAgent)</text>
+  <rect class="bx-agent" x="260" y="10" width="140" height="36"/>
+  <text class="t" x="330" y="32" text-anchor="middle">AgentTools</text>
+  <rect class="bx-sim" x="490" y="10" width="140" height="36"/>
+  <text class="t" x="560" y="32" text-anchor="middle">Engine</text>
+  <rect class="bx-db" x="720" y="10" width="160" height="36"/>
+  <text class="t" x="800" y="32" text-anchor="middle">World (Store + NPCs)</text>
   <!-- lifelines -->
-  <line class="life" x1="90"  y1="46" x2="90"  y2="360"/>
-  <line class="life" x1="270" y1="46" x2="270" y2="360"/>
-  <line class="life" x1="450" y1="46" x2="450" y2="360"/>
-  <line class="life" x1="630" y1="46" x2="630" y2="360"/>
-  <line class="life" x1="820" y1="46" x2="820" y2="360"/>
+  <line class="life" x1="100" y1="46" x2="100" y2="360"/>
+  <line class="life" x1="330" y1="46" x2="330" y2="360"/>
+  <line class="life" x1="560" y1="46" x2="560" y2="360"/>
+  <line class="life" x1="800" y1="46" x2="800" y2="360"/>
   <!-- read round-trip -->
-  <line class="edge" x1="90" y1="78" x2="268" y2="78" marker-end="url(#arr4)"/>
-  <text class="el" x="98" y="72">call_tool read_jira_board</text>
-  <line class="edge" x1="270" y1="102" x2="448" y2="102" marker-end="url(#arr4)"/>
-  <line class="edge" x1="450" y1="126" x2="818" y2="126" marker-end="url(#arr4)"/>
-  <text class="el" x="560" y="120">Store query — 0 sim-time</text>
-  <line class="edge dash" x1="818" y1="150" x2="92" y2="150" marker-end="url(#arr4)"/>
-  <text class="el" x="360" y="166">issues + counts_by_status</text>
+  <line class="edge" x1="100" y1="78" x2="328" y2="78" marker-end="url(#arr4)"/>
+  <text class="el" x="108" y="72">read_jira_board — direct call (InProcessBackend)</text>
+  <line class="edge" x1="330" y1="112" x2="798" y2="112" marker-end="url(#arr4)"/>
+  <text class="el" x="440" y="106">Store query — 0 sim-time</text>
+  <line class="edge dash" x1="798" y1="146" x2="102" y2="146" marker-end="url(#arr4)"/>
+  <text class="el" x="360" y="162">issues + counts_by_status</text>
   <!-- send round-trip -->
-  <line class="edge" x1="90" y1="196" x2="268" y2="196" marker-end="url(#arr4)"/>
-  <text class="el" x="98" y="190">call_tool send_slack(channel, body)</text>
-  <line class="edge" x1="270" y1="220" x2="448" y2="220" marker-end="url(#arr4)"/>
-  <line class="edge" x1="450" y1="244" x2="628" y2="244" marker-end="url(#arr4)"/>
-  <text class="el" x="458" y="238">perform_action(cost=1, effect)</text>
-  <line class="edge" x1="630" y1="268" x2="818" y2="268" marker-end="url(#arr4)"/>
-  <text class="el" x="648" y="262">effect: message row @ now</text>
-  <path class="edge" d="M 630 292 C 686 292 686 316 632 316" marker-end="url(#arr4)"/>
-  <text class="el" x="616" y="308" text-anchor="end">advance(1) → step(): due events fire</text>
-  <line class="edge dash" x1="820" y1="292" x2="820" y2="330"/>
-  <text class="el" x="908" y="316" text-anchor="end">reactions: close in_review ·</text>
-  <text class="el" x="908" y="330" text-anchor="end">“pick up KEY” → priority 0</text>
-  <line class="edge dash" x1="448" y1="352" x2="92" y2="352" marker-end="url(#arr4)"/>
-  <text class="el" x="200" y="346">message dict (via MCP)</text>
+  <line class="edge" x1="100" y1="196" x2="328" y2="196" marker-end="url(#arr4)"/>
+  <text class="el" x="108" y="190">send_slack(channel, body)</text>
+  <line class="edge" x1="330" y1="230" x2="558" y2="230" marker-end="url(#arr4)"/>
+  <text class="el" x="338" y="224">perform_action(cost=1, effect)</text>
+  <line class="edge" x1="560" y1="262" x2="798" y2="262" marker-end="url(#arr4)"/>
+  <text class="el" x="578" y="256">effect: message row @ now</text>
+  <path class="edge" d="M 560 290 C 616 290 616 314 562 314" marker-end="url(#arr4)"/>
+  <text class="el" x="546" y="306" text-anchor="end">advance(1) → step(): due events fire</text>
+  <line class="edge dash" x1="800" y1="290" x2="800" y2="330"/>
+  <text class="el" x="888" y="316" text-anchor="end">reactions: close in_review ·</text>
+  <text class="el" x="888" y="330" text-anchor="end">“pick up KEY” → priority 0</text>
+  <line class="edge dash" x1="328" y1="352" x2="102" y2="352" marker-end="url(#arr4)"/>
+  <text class="el" x="180" y="346">message dict</text>
 </svg>
 <figcaption>Reads are free queries; <code>send_slack</code> is the one costed mutation, and the world's
 Slack reactions turn it into board effects.</figcaption>
@@ -763,9 +754,8 @@ Slack reactions turn it into board effects.</figcaption>
   <tbody>
     <tr><td><strong>LLM PM</strong></td>
         <td><code>LLMAgent</code> (<span class="path">agent/openrouter_agent.py</span>) — a
-            model ⇄ tool-call loop (max 12 steps) over <code>McpBackend</code> (live MCP session) or
-            <code>InProcessBackend</code> (direct <code>AgentTools</code>, for tests); OpenRouter models,
-            <code>pm-agent</code> CLI.</td>
+            model ⇄ tool-call loop (max 12 steps) over <code>InProcessBackend</code>
+            (direct <code>AgentTools</code>); OpenRouter models, <code>pm-agent</code> CLI.</td>
         <td>its own review cadence</td>
         <td>Full lever access via <code>send_slack</code>.</td></tr>
     <tr><td><strong>Visibility-only PM</strong></td>
@@ -791,7 +781,11 @@ leaks past it. Schema (version 2) highlights:</p>
   <li><strong>World entities</strong> — <code>person</code> (persona JSON, delay bounds),
       <code>project</code>, <code>channel</code>/<code>message</code>, email thread tables,
       <code>meeting</code>/<code>meeting_attendee</code>,
-      <code>transcript</code> (<code>available_tick</code> gates discoverability), <code>document</code>.</li>
+      <code>transcript</code> (<code>available_tick</code> gates discoverability; every meeting leaves
+      one at its end), <code>task</code> (informal meeting-notes tasks — id, title, DRI,
+      <code>todo | in_progress | done</code>, <code>source_meeting_id</code>; upserted from meeting
+      payloads, and what <span class="path">pm/eval/report.py</span> grades from, with board leaf
+      tasks as the fallback), <code>document</code>.</li>
   <li><strong>Additive tables</strong> — <code>issue</code>/<code>issue_dependency</code> are created at
       runtime by <code>JiraRepository</code>, and <code>activity</code> by <code>ActivityManager</code>,
       without bumping the schema version.</li>
@@ -819,12 +813,21 @@ on the last tick.</p>
         <td>two engineers with cross-dependencies (plus a <code>_mixed</code> personas
             variant)</td>
         <td>Closing in_review work unblocks a partner — the PM's close lever matters.</td></tr>
-    <tr><td><code>tight_week*</code></td>
+    <tr><td><code>team_with_jira</code> / <code>team_mixed_persona</code></td>
         <td>6-person cast, 66 pre-assigned tasks tiling each calendar between 11 pre-booked meetings;
             dependency + priority order finishes exactly at Fri 17:00</td>
         <td>Zero-slack schedule; standups carry the authored transcripts from
             <span class="path">pm/transcript/</span> (a customer “live caption translation” thread only
             the PM can act on, surfaced via <code>read_transcripts</code>).</td></tr>
+    <tr><td><code>team_no_jira</code> · <code>team_partial_jira</code></td>
+        <td>Full team; the “Meeting Transcripts v1” plan (6 tasks, DRIs, estimates) lives in
+            <span class="path">pm/transcript/project.md</span> and
+            <span class="path">scenarios/project_board.py</span> files only a chosen subset as Jira
+            tickets — none vs 3 of 6. The kickoff payload seeds all 6 informal tasks; daily standup
+            payloads advance their statuses.</td>
+        <td>The board-vs-notes trap: <code>read_jira_board</code> looks empty (or healthy) while the
+            transcripts and the <code>task</code> table hold the real project — which is what
+            <code>pm eval</code> grades.</td></tr>
   </tbody>
 </table>
 
@@ -838,7 +841,7 @@ is reserved before anything else is placed.</p>
   Generated 2026-07-16 from the source at commit-time state — anchors:
   <span class="path">pm/sim/{clock,events,engine,scheduler,calendar,activity,simulation}.py</span> ·
   <span class="path">pm/npc/{cast,persona,behavior,reactions}.py</span> ·
-  <span class="path">pm/agent/{tools,mcp_server,openrouter_agent}.py</span> ·
+  <span class="path">pm/agent/{tools,openrouter_agent}.py</span> ·
   <span class="path">pm/db/{database,store,schema.sql}</span> ·
   <span class="path">pm/scenarios/runner.py</span>
 </footer>

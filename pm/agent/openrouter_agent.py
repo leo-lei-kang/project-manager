@@ -5,34 +5,22 @@ Hands the :class:`~pm.agent.tools.AgentTools` schemas to an OpenRouter-hosted mo
 until the model replies with no tool call. Everything runs in one process — no
 server or transport.
 
-Config is read from the environment (a local ``.env`` is loaded if present):
-
-  * ``OPENROUTER_API_KEY`` — required; your OpenRouter key.
-  * ``OPENROUTER_MODEL``   — required; any OpenRouter model id (configurable).
-  * ``PM_RUN_ID``          — the run to bind the tools to (default ``demo``).
-  * ``PM_RUNS_ROOT``       — where runs live (default the package's runs dir).
-
-Requires the ``agent`` extra::
-
-    uv sync --extra agent
-    PM_RUN_ID=demo uv run pm-agent "Review the board and post a status update in #eng"
-
-``LLMAgent`` itself is dependency-free (duck-typed model client + tool backend), so
-the loop is unit-testable without a network or an API key; the OpenRouter wiring
-lives in :func:`main`, which imports its deps lazily.
+This module is a library, not an entry point: ``examples/run_agent_llm.py`` drives
+the loop against a seeded board (``OPENROUTER_API_KEY`` in ``.env``), and scenario
+code can do the same. ``LLMAgent`` itself is dependency-free (duck-typed model
+client + tool backend).
 """
 
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Protocol
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Curated OpenRouter model ids the agent can be run with (see examples/run_agent_llm.py
-# and tests/test_agent_llm.py). Any OpenRouter model id works; these are one flagship
-# per vendor plus a couple of free (no-cost) models.
+# Curated OpenRouter model ids the agent can be run with (see examples/run_agent_llm.py).
+# Any OpenRouter model id works; these are one flagship per vendor plus a couple of
+# free (no-cost) models.
 MODELS = [
     # one per vendor (paid) — each vendor's flagship / top tier
     "openai/gpt-5.5-pro",
@@ -133,7 +121,7 @@ class InProcessBackend:
     """A :class:`ToolBackend` that calls :class:`~pm.agent.tools.AgentTools` directly.
 
     Exposes the five agent tools with no server/transport — the way to drive
-    :class:`LLMAgent` locally (from ``pm-agent``, examples, or tests).
+    :class:`LLMAgent` locally (from examples or scenario code).
     """
 
     def __init__(self, tools: Any) -> None:
@@ -147,39 +135,3 @@ class InProcessBackend:
         if method is None:
             return json.dumps({"error": f"unknown tool {name!r}"})
         return json.dumps(method(**args))
-
-
-def main() -> None:
-    """CLI entry (``pm-agent``): bind the run named by ``PM_RUN_ID`` and run in-process."""
-    import asyncio
-    import sys
-    from pathlib import Path
-
-    from dotenv import load_dotenv
-    from openai import AsyncOpenAI
-
-    from pm.agent.tools import AgentTools
-    from pm.env.environment import RUNS_DIR, Env
-
-    load_dotenv()
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    model = os.environ.get("OPENROUTER_MODEL")
-    if not api_key or not model:
-        raise SystemExit(
-            "Set OPENROUTER_API_KEY and OPENROUTER_MODEL in .env (see .env.example)."
-        )
-    run_id = os.environ.get("PM_RUN_ID", "demo")
-    root = Path(os.environ.get("PM_RUNS_ROOT", str(RUNS_DIR)))
-    goal = " ".join(sys.argv[1:]) or "Review the Jira board and summarize the status."
-
-    env = Env.load(run_id, root=root)
-    try:
-        client = AsyncOpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
-        agent = LLMAgent(client, model, InProcessBackend(AgentTools(env)))
-        print(asyncio.run(agent.run(goal)))
-    finally:
-        env.close()
-
-
-if __name__ == "__main__":
-    main()

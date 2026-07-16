@@ -1,4 +1,4 @@
-"""The Tight Week scenario: a board the team can *barely* finish in order.
+"""The Team with Jira scenario: a board the team can *barely* finish in order.
 
 The intended schedule tiles every member's free calendar segments exactly, so
 the run itself is the proof: any arithmetic slip in the task tables or the
@@ -14,7 +14,7 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.persona import FREE_SPIRIT
-from pm.scenarios.tight_week import DEPS, MEMBERS, PROJECT_ID, TASKS, build
+from pm.scenarios.team_with_jira import DEPS, MEMBERS, PROJECT_ID, TASKS, build
 from pm.sim.clock import WEEK_END_TICK
 from pm.sim.simulation import Simulation
 

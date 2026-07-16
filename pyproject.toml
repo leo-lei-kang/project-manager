@@ -7,16 +7,12 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.6",
     "typer>=0.12",
+    "openai>=1.0",
+    "python-dotenv>=1.0",
 ]
-
-[project.optional-dependencies]
-# Drive the PM agent in-process with an OpenRouter-hosted model (`pm-agent`);
-# the core sim needs no LLM/API key.
-agent = ["openai>=1.0", "python-dotenv>=1.0"]
 
 [project.scripts]
 pm = "pm.cli:app"
-pm-agent = "pm.agent.openrouter_agent:main"
 
 [dependency-groups]
 dev = [

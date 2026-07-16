@@ -1,6 +1,6 @@
 """Jira tickets on the work-week timeline, rendered to static HTML/SVG.
 
-    uv run python examples/visualize_jira_tasks.py <run_id>   # e.g. tight_week
+    uv run python examples/visualize_jira_tasks.py <run_id>   # e.g. team_with_jira
 
 Thin wrapper over :func:`pm.viz.write_jira_tasks`: reads
 ``runs/<run_id>/world.db`` and writes ``runs/<run_id>/jira_tasks.html`` — a
@@ -20,7 +20,7 @@ from pm.viz import write_jira_tasks
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_id", help="run id under runs/, e.g. tight_week")
+    parser.add_argument("run_id", help="run id under runs/, e.g. team_with_jira")
     args = parser.parse_args(argv)
     try:
         out = write_jira_tasks(args.run_id)
