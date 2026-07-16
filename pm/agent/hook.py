@@ -94,7 +94,7 @@ def llm_review_hook(
     def stamped(entry: dict[str, Any]) -> None:
         tick = env.clock.now()
         log.append({"tick": tick, **entry})
-        env.store.log_event(tick, actor=tools.actor,
+        env.store.log_event(tick, actor="agent",
                             kind=f"agent.{entry['kind']}", payload=entry)
 
     def hook(sim: "Simulation") -> None:

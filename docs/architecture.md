@@ -126,6 +126,21 @@ has no informal tasks (hours stay Jira-sourced).
 
 ## Events, actions & activities — how they trigger each other
 
+The mental model: the **event table is the world's timeline** — `pending` rows
+are the future (a scheduled meeting, a message in flight, a read due in twenty
+minutes), and `done` rows plus the `event_log` are the immutable record of what
+happened; it is simultaneously the calendar, the message bus, and the ledger.
+The **activity table is each NPC's attention scheduler** — at most one
+`started` activity per person, with `backlogged` and `interrupted` items queued
+behind it by priority; the pool of *candidate* work lives on the Jira board,
+and a `WorkDriver` sweep is what commits a candidate into someone's attention.
+An NPC lives in both planes at once: events involving them fire while they
+work (reading Slack costs no attention), and the bridge is the one place a
+timeline fact seizes attention directly. In one sentence: *events happen on
+the timeline → completions poke the NPC (`on_event_done`) → the NPC commits
+attention (`request`) or speaks (`schedule`) → finished activities poke it
+again (`on_activity_done`)*.
+
 Three moving parts share the one clock, and each fires the others:
 
 - **Activity done → NPC behavior → next activity or event.** NPC work runs as
@@ -198,8 +213,8 @@ it runs, and steer it only through the Slack levers the reactions implement.
 
 ## How events are scheduled
 
-Every asynchronous activity is one durative **`Event`** (`pm/sim/events.py`) with a
-uniform lifecycle:
+Every fact on the world's timeline — happened or scheduled — is one **`Event`**
+(`pm/sim/events.py`) with a uniform lifecycle:
 
 ```
 pending ──start()──▶ active ──done()──▶ done        (+ cancelled)

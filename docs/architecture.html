@@ -365,10 +365,13 @@ that crosses 5pm lands the next morning automatically.</p>
 <!-- ================================================================== -->
 <h2 id="events">4. Events <span class="path">pm/sim/events.py</span></h2>
 
-<p>An <strong>Event is the unit of asynchronous activity</strong>: everything durative in the world —
-chat latency, meetings, ticket work, being out of office — is one <code>Event</code> object with a uniform
-lifecycle and exactly <strong>one row in the <code>event</code> table</strong> (completion is a status flip
-on that row, not a second record). The engine rehydrates the right subclass from a DB row via
+<p>An <strong>Event is a fact on the world's timeline</strong> — something that happened or is
+scheduled to happen: chat latency, a message read, a meeting, being out of office. The
+<code>event</code> table is that timeline in both directions — <code>pending</code> rows are the
+future, <code>done</code> rows plus the <code>event_log</code> are the immutable record — making it
+simultaneously the <em>calendar</em>, the <em>message bus</em>, and the <em>ledger</em>. Each event is
+one object with a uniform lifecycle and exactly <strong>one row</strong> (completion is a status flip
+on that row, not a second record); the engine rehydrates the right subclass from a DB row via
 <code>EVENT_REGISTRY</code>.</p>
 
 <figure>
@@ -528,12 +531,16 @@ costs are clamped to the remaining week.</p>
 <h2 id="activities">6. Activities <span class="path">pm/sim/activity.py</span></h2>
 
 <p>An <strong>Activity</strong> is the durative-work system NPCs actually run on. Where an Event is a
-scheduled world occurrence (a calendar item with a fixed window), an Activity is a thing one or more
-NPCs are <em>doing</em> right now — it burns down minute by minute, can be interrupted by something more
-important, and resumes with its remaining time frozen. It owns its own <code>activity</code> table
-(created idempotently by <code>ActivityManager</code>); effects are kind-specific side effects on
-start/done — <code>jira_work</code> tracks the Jira issue named in its <code>params</code> and applies
-the same transitions <code>JiraTicketEvent</code> does.</p>
+fact on the world's timeline, an Activity is a thing one or more NPCs are <em>doing</em> right now —
+it burns down minute by minute, can be interrupted by something more important, and resumes with its
+remaining time frozen. The <code>activity</code> table is <strong>each NPC's attention
+scheduler</strong>: at most one <code>started</code> activity per person, with their
+<code>backlogged</code> and <code>interrupted</code> items queued behind it by priority. (The pool of
+<em>candidate</em> work lives on the Jira board — a <code>WorkDriver</code> sweep is what commits a
+candidate into someone's attention as a <code>jira_work</code> activity.) The table is created
+idempotently by <code>ActivityManager</code>; effects are kind-specific side effects on start/done —
+<code>jira_work</code> tracks the Jira issue named in its <code>params</code> and applies the same
+transitions <code>JiraTicketEvent</code> does.</p>
 
 <figure>
 <svg viewBox="0 0 760 178" role="img" aria-label="Activity state machine">
@@ -598,6 +605,15 @@ communication latency) and for the procedural generator's <code>JiraTicketEvent<
 
 <!-- ================================================================== -->
 <h2 id="triggers">7. How events, actions &amp; activities trigger each other</h2>
+
+<p>The mental model: <strong>events are the world's timeline</strong> (what happened or is scheduled —
+the calendar, the message bus, and the ledger in one table) and <strong>activities are each NPC's
+attention</strong> (one <code>started</code> thing per person, queued behind by priority). An NPC lives
+in both planes at once — events involving them fire while they work (reading Slack costs no
+attention), and the bridge is the one place a timeline fact seizes attention directly. In one
+sentence: <em>events happen on the timeline → completions poke the NPC (<code>on_event_done</code>) →
+the NPC commits attention (<code>request</code>) or speaks (<code>schedule</code>) → finished
+activities poke it again (<code>on_activity_done</code>)</em>.</p>
 
 <p>Three moving parts share the single clock, and each fires the others:</p>
 <ul>

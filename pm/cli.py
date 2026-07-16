@@ -89,6 +89,8 @@ def sim(
         env = Env.load(scenario)
     if verbose:
         env.store.on_log = lambda e: typer.echo(format_entry(e))
+        for line in runner.setup_summary(env, module):
+            typer.echo(line)
 
     simulation = Simulation(env)
     if simulation.is_over():
