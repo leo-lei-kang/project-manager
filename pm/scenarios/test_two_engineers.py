@@ -21,14 +21,15 @@ builds ``runs/test_two_engineers/`` with the named persona preset
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+
 from pathlib import Path
 
 from pm.env.environment import RUNS_DIR, Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST as _FULL_CAST
-from pm.npc.cast import seed_cast
+from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import PERFECT, PRESETS, Persona
 from pm.sim.clock import WEEK_END_TICK
 from pm.world.models import Project
@@ -108,11 +109,10 @@ def _seed_board(env: Env) -> None:
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
-          force: bool = True, member_persona: Persona = PERFECT) -> Env:
+          force: bool = True, member_persona: Persona | Mapping[str, Persona] = PERFECT) -> Env:
     """Create the run, seed the two engineers + cross-blocked board, snapshot ``seed.db``."""
     env = Env.make(SCENARIO, run_id, seed, force=force, root=root)
-    cast = [replace(c, persona=member_persona) for c in CAST]
-    seed_cast(env.store, cast=cast)
+    seed_cast(env.store, cast=with_personas(CAST, member_persona))
     _seed_board(env)
     env.store.db.backup_to(Env.seed_path(run_id, root))
     return env

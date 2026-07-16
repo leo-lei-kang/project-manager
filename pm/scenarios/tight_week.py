@@ -23,7 +23,8 @@ they pick tasks out of order.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+
 from pathlib import Path
 
 from pm.env.environment import RUNS_DIR, Env
@@ -31,7 +32,7 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import MEMBERS as _CAST_MEMBERS
-from pm.npc.cast import seed_cast
+from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import PERFECT, Persona
 from pm.sim.clock import MINUTES_PER_WORKDAY
 from pm.sim.events import MeetingEvent
@@ -226,11 +227,10 @@ def _schedule_meetings(env: Env) -> None:
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
-          force: bool = True, member_persona: Persona = PERFECT) -> Env:
+          force: bool = True, member_persona: Persona | Mapping[str, Persona] = PERFECT) -> Env:
     """Create the run, seed cast + saturated board + meetings, snapshot ``seed.db``."""
     env = Env.make(SCENARIO, run_id, seed, force=force, root=root)
-    cast = [replace(c, persona=member_persona) if c.kind == "member" else c for c in CAST]
-    seed_cast(env.store, cast=cast)
+    seed_cast(env.store, cast=with_personas(CAST, member_persona))
     _seed_board(env)
     _schedule_meetings(env)
     env.store.db.backup_to(Env.seed_path(run_id, root))

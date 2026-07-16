@@ -14,11 +14,14 @@ intended behaviour.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from pm.npc.persona import from_person
 from pm.sim.events import EventType, JiraTicketEvent
+
+_TERMINAL_STATUSES = ("done", "cancelled")
 
 if TYPE_CHECKING:
     from pm.jira.api import JiraApi
@@ -89,6 +92,12 @@ def _on_slack_send(engine: "Engine", event: "Event") -> None:
 
     "Named" is a case-insensitive substring match of the person's ``name`` or ``id``
     in the message body — deterministic, no model in the loop.
+
+    A *directive* message — one containing the phrase "pick up" — additionally
+    bumps every issue key it names to priority 0, the "explicitly asked by the
+    PM" level that even a freestyle persona works first (see
+    :func:`pm.npc.behavior._next_issue`). A mere mention of a key (a status
+    highlight) steers nothing.
     """
     body = event.payload.get("body", "").lower()
     if not body:
@@ -97,6 +106,11 @@ def _on_slack_send(engine: "Engine", event: "Event") -> None:
     for person in engine.store.list_people():
         if person.name.lower() in body or person.id.lower() in body:
             _close_in_review(api, person.id)
+    if "pick up" in body:
+        for key in re.findall(r"\b[a-z]+-\d+\b", body):
+            issue = api.repo.get_issue(key.upper())
+            if issue is not None and issue.status not in _TERMINAL_STATUSES:
+                api.set_priority(issue.id, 0, actor=event.owner_id)
 
 
 # A hook for every event type. The Jira cascade and the standup/Slack closes are

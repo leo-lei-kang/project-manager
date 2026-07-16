@@ -201,6 +201,12 @@ class JiraApi:
         self._mutate(actor, lambda: self.repo.update_fields(key, tick, estimate_minutes=minutes))
         return self._require(key)
 
+    def set_priority(self, key: str, priority: int, actor: str = "agent") -> Issue:
+        self._require(key)
+        tick = self._tick()
+        self._mutate(actor, lambda: self.repo.update_fields(key, tick, priority=priority))
+        return self._require(key)
+
     def log_work(self, key: str, minutes: int, actor: str = "agent") -> Issue:
         issue = self._require(key)
         if minutes < 0:

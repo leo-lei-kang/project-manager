@@ -20,17 +20,30 @@ from pm.eval import evaluate, format_report, to_dict
 from pm.exceptions import ConfigurationError
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
-from pm.npc.persona import PRESETS
-from pm.scenarios import test_single_engineer, test_two_engineers, tight_week
+from pm.npc.behavior import assignee_pickup_hook, compose
+from pm.npc.persona import PRESETS, Persona
+from pm.scenarios import (
+    test_single_engineer,
+    test_single_engineer_with_agent,
+    test_single_engineer_with_pm,
+    test_two_engineers,
+    test_two_engineers_with_pm,
+    tight_week,
+    tight_week_with_pm,
+)
 from pm.sim.simulation import Simulation
 from pm.viz import write_calendars, write_jira_tasks
 
-# Scenarios `pm sim` can build and drive (module must expose build/MEMBERS/PROJECT_ID).
+# Scenarios `pm sim` can build and drive (module must expose build/MEMBERS/PROJECT_ID;
+# it may also expose agent_review_hook(env) to add an in-run PM agent).
 SCENARIOS = {
     "test_single_engineer": test_single_engineer,
+    "test_single_engineer_with_agent": test_single_engineer_with_agent,
+    "test_single_engineer_with_pm": test_single_engineer_with_pm,
     "test_two_engineers": test_two_engineers,
+    "test_two_engineers_with_pm": test_two_engineers_with_pm,
     "tight_week": tight_week,
+    "tight_week_with_pm": tight_week_with_pm,
 }
 
 app = typer.Typer(
@@ -45,6 +58,33 @@ def _db_path(run_id: str) -> Path:
     return RUNS_DIR / run_id / "world.db"
 
 
+def _parse_personas(spec: str, members: list[str]) -> Persona | dict[str, Persona]:
+    """``--persona`` value: one preset name, or ``member=preset`` pairs.
+
+    ``perfect`` applies to every member; ``alice=free_spirit,clare=heads_down``
+    assigns per member (unnamed members keep their cast default).
+    """
+    if "=" not in spec:
+        if spec not in PRESETS:
+            raise typer.BadParameter(
+                f"unknown persona {spec!r} (choices: {', '.join(PRESETS)}).",
+                param_hint="--persona")
+        return PRESETS[spec]
+    out: dict[str, Persona] = {}
+    for part in spec.split(","):
+        member, _, name = part.partition("=")
+        if member not in members:
+            raise typer.BadParameter(
+                f"unknown member {member!r} (members: {', '.join(members)}).",
+                param_hint="--persona")
+        if name not in PRESETS:
+            raise typer.BadParameter(
+                f"unknown persona {name!r} (choices: {', '.join(PRESETS)}).",
+                param_hint="--persona")
+        out[member] = PRESETS[name]
+    return out
+
+
 @app.command()
 def sim(
     run_id: str | None = typer.Option(
@@ -56,7 +96,8 @@ def sim(
     ),
     persona: str = typer.Option(
         "perfect", "--persona",
-        help=f"Member behavior persona used when building ({' | '.join(PRESETS)}).",
+        help=f"Member persona(s) used when building: one of {' | '.join(PRESETS)}, "
+             "or per-member pairs like alice=free_spirit,clare=heads_down.",
     ),
 ) -> None:
     """Run the simulated work week: NPC coworkers work the board until Fri 17:00."""
@@ -68,10 +109,6 @@ def sim(
         raise typer.BadParameter(
             f"unknown scenario {scenario!r} (choices: {', '.join(SCENARIOS)}).",
             param_hint="--scenario")
-    if persona not in PRESETS:
-        raise typer.BadParameter(
-            f"unknown persona {persona!r} (choices: {', '.join(PRESETS)}).",
-            param_hint="--persona")
     rid = run_id if run_id is not None else scenario
     assert rid is not None  # at least one of run_id/scenario is set above
 
@@ -81,7 +118,8 @@ def sim(
             raise typer.BadParameter(
                 f"no run database at {path}; pass --scenario to build one "
                 f"(choices: {', '.join(SCENARIOS)}).", param_hint="--scenario")
-        env = SCENARIOS[scenario].build(run_id=rid, member_persona=PRESETS[persona])
+        personas = _parse_personas(persona, SCENARIOS[scenario].MEMBERS)
+        env = SCENARIOS[scenario].build(run_id=rid, member_persona=personas)
         typer.echo(f"Built scenario '{scenario}' at {path.parent}/ (persona: {persona})")
     else:
         if persona != "perfect":
@@ -112,8 +150,17 @@ def sim(
 
     api = JiraApi(JiraRepository(env.store), env.engine)
     start = simulation.now_label()
-    summary = simulation.run(
-        on_tick=assignee_pickup_hook(api, module.MEMBERS, module.PROJECT_ID))
+    pickup = assignee_pickup_hook(api, module.MEMBERS, module.PROJECT_ID)
+    review = getattr(module, "agent_review_hook", None)
+    # PM before pickup: a same-tick close/directive must land before the person
+    # it steers picks their next ticket (the zero-slack boards can't absorb lag).
+    review_hook = review(env) if review is not None else None
+    on_tick = compose(review_hook, pickup) if review_hook is not None else pickup
+    summary = simulation.run(on_tick=on_tick)
+    if review_hook is not None:
+        # The PM's week-end close-out: work finishing on the final tick lands
+        # after the last in-loop review, so close it now (nothing new dispatches).
+        review_hook(simulation)
     typer.echo(f"Simulated {start} -> {simulation.now_label()} "
                f"(tick {summary.final_tick}); {summary.events_fired} event transitions fired.")
     typer.echo(f"Evaluate it with:  uv run pm eval --run-id {rid}")

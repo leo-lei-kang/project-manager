@@ -109,6 +109,11 @@ def _next_issue(
     candidates = assigned + unassigned
     if not candidates:
         return None
+    # Priority <= 0 marks work the PM explicitly asked for (a Slack "pick up"
+    # directive) — it overrides every work style, freestyle included.
+    urgent = [i for i in candidates if i.priority <= 0]
+    if urgent:
+        return min(urgent, key=lambda i: (i.priority, i.id))
     if persona.work_style == "freestyle":
         rng = random.Random(f"{seed}:{pid}:{now}")
         return rng.choice(sorted(candidates, key=lambda i: i.id))

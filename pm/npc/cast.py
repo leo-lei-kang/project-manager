@@ -8,7 +8,8 @@ evaluator can read them back).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from pm.db.store import Store
@@ -70,6 +71,24 @@ CAST: list[CastMember] = [
 MEMBERS: list[CastMember] = [c for c in CAST if c.kind == "member"]
 STAKEHOLDERS: list[CastMember] = [c for c in CAST if c.kind == "stakeholder"]
 AGENT: CastMember = next(c for c in CAST if c.kind == "agent")
+
+
+def with_personas(
+    cast: list[CastMember], personas: Persona | Mapping[str, Persona]
+) -> list[CastMember]:
+    """The cast with member personas replaced — uniform, or per-member by id.
+
+    A single :class:`Persona` applies to every ``member``; a mapping assigns
+    per-member (ids not in the mapping keep their cast default). Non-members
+    (stakeholders, the agent) are never touched.
+    """
+    if isinstance(personas, Persona):
+        return [replace(c, persona=personas) if c.kind == "member" else c for c in cast]
+    members = {c.id for c in cast if c.kind == "member"}
+    unknown = set(personas) - members
+    if unknown:
+        raise ValueError(f"unknown cast member(s) {sorted(unknown)}; members: {sorted(members)}")
+    return [replace(c, persona=personas[c.id]) if c.id in personas else c for c in cast]
 
 
 def seed_cast(store: Store, cast: list[CastMember] = CAST) -> list[Person]:

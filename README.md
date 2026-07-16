@@ -116,9 +116,12 @@ uv run pm sim --scenario tight_week --run-id chaos \
 | `test_two_engineers` | two engineers whose tickets cross-block each other just-in-time |
 | `test_single_engineer` | one overloaded engineer — priority triage decides what ships |
 
-`--persona` seeds the members' behavior when building (`perfect` |
-`heads_down` | `free_spirit`); the imperfect personas show a board
-failing its week.
+`--persona` seeds the members' behavior when building — one preset for everyone
+(`perfect` | `heads_down` | `free_spirit`) or per-member pairs like
+`alice=free_spirit,clare=heads_down`. The `*_with_pm` scenario variants add a
+scripted PM that steers the week over Slack. Eight verified persona × PM
+configurations, with commands and outcomes, are cataloged in
+[`pm/scenarios/scenarios.md`](pm/scenarios/scenarios.md).
 
 For a per-day progress report with narration, `examples/run_tight_week.py` does
 the same and persists the finished run to `runs/tight_week/`.
