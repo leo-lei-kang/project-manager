@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PM Simulation — A World Model for Evaluating PM Agents</title>
+<style>
+  :root {
+    --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#ffffff; --border:#e2e8f0;
+    --accent:#2563eb;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sim-bg:#dbeafe; --sim-fg:#1e40af; --sim-bd:#93c5fd;
+    --npc-bg:#dcfce7; --npc-fg:#166534; --npc-bd:#86efac;
+    --agent-bg:#f3e8ff; --agent-fg:#6b21a8; --agent-bd:#d8b4fe;
+    --db-bg:#fef3c7;  --db-fg:#92400e;  --db-bd:#fcd34d;
+    --act-bg:#ffe4e6; --act-fg:#9f1239; --act-bd:#fda4af;
+    --evt-bg:#ccfbf1; --evt-fg:#115e59; --evt-bd:#5eead4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b1120; --fg:#e2e8f0; --muted:#94a3b8; --card:#111a2e; --border:#243049;
+      --accent:#60a5fa;
+      --sim-bg:#172554; --sim-fg:#93c5fd; --sim-bd:#1e40af;
+      --npc-bg:#052e16; --npc-fg:#86efac; --npc-bd:#166534;
+      --agent-bg:#2e1065; --agent-fg:#d8b4fe; --agent-bd:#6b21a8;
+      --db-bg:#3b2405;  --db-fg:#fcd34d;  --db-bd:#92400e;
+      --act-bg:#4c0519; --act-fg:#fda4af; --act-bd:#9f1239;
+      --evt-bg:#042f2e; --evt-fg:#5eead4; --evt-bd:#0f766e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  header.doc { border-bottom: 1px solid var(--border); padding-bottom: 1.1rem; margin-bottom: 1.25rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .35rem; }
+  .subtitle { color: var(--muted); margin: 0; }
+  h2 { font-size: 1.3rem; margin: 2.25rem 0 .6rem; }
+  p { margin: .5rem 0; }
+  code, .path {
+    font-family: var(--mono); font-size: .84em;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 5px; padding: .08em .35em;
+  }
+  mark {
+    border-radius: 5px; padding: .06em .3em; font-weight: 600;
+    background: var(--hl-bg); color: var(--hl-fg); border: 1px solid var(--hl-bd);
+  }
+  mark.sim   { --hl-bg: var(--sim-bg);   --hl-fg: var(--sim-fg);   --hl-bd: var(--sim-bd); }
+  mark.npc   { --hl-bg: var(--npc-bg);   --hl-fg: var(--npc-fg);   --hl-bd: var(--npc-bd); }
+  mark.agent { --hl-bg: var(--agent-bg); --hl-fg: var(--agent-fg); --hl-bd: var(--agent-bd); }
+  mark.db    { --hl-bg: var(--db-bg);    --hl-fg: var(--db-fg);    --hl-bd: var(--db-bd); }
+  mark.act   { --hl-bg: var(--act-bg);   --hl-fg: var(--act-fg);   --hl-bd: var(--act-bd); }
+  mark.evt   { --hl-bg: var(--evt-bg);   --hl-fg: var(--evt-fg);   --hl-bd: var(--evt-bd); }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; font-size: .88rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--card); font-weight: 600; }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--card) 55%, transparent); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: .8rem; margin: .9rem 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: .75rem 1rem; border-left: 4px solid var(--edge, var(--border));
+  }
+  .card h3 { margin: 0 0 .3rem; font-size: .95rem; }
+  .card p { margin: .3rem 0; font-size: .9rem; }
+  .card.sim   { --edge: var(--sim-bd); }
+  .card.npc   { --edge: var(--npc-bd); }
+  .card.agent { --edge: var(--agent-bd); }
+  .card.db    { --edge: var(--db-bd); }
+  .card.act   { --edge: var(--act-bd); }
+  .card.evt   { --edge: var(--evt-bd); }
+  .lede {
+    background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+    border-radius: 10px; padding: .8rem 1rem; margin: 1.1rem 0;
+  }
+  ul.tight { margin: .5rem 0; padding-left: 1.2rem; }
+  ul.tight li { margin: .3rem 0; font-size: .93rem; }
+  .caveat { color: var(--muted); font-size: .9rem; }
+  a { color: var(--accent); text-decoration: none; }
+  footer { margin-top: 2.5rem; color: var(--muted); font-size: .85rem; border-top: 1px solid var(--border); padding-top: .9rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header class="doc">
+  <h1>A World Model for Evaluating PM Agents</h1>
+  <p class="subtitle">One simulated team-week, realistic where it counts — measurable where it matters.</p>
+</header>
+
+<div class="lede">
+  <p>The sim reproduces the slice of reality a PM operates in — a calendar, a board, coworkers
+  with habits, meetings where the truth lives — and gives an LLM agent a real PM's only move:
+  <em>read the room, then send a message</em>. The week is deterministic and its unmanaged outcome
+  is pinned, so the agent's score is a clean <strong>lift over doing nothing</strong>.</p>
+</div>
+
+<h2>The realistic setup</h2>
+
+<div class="cards">
+  <div class="card sim">
+    <h3>Real calendar time</h3>
+    <p><mark class="sim">1 tick = 1 minute, 09:00–17:00, Mon–Fri</mark>. Meetings preempt work;
+    work resumes with remaining minutes intact — interruptions cost exactly what they cost.</p>
+  </div>
+  <div class="card db">
+    <h3>Honest capacity math</h3>
+    <p>Boards are tuned to real capacity: <mark class="db">60&nbsp;h board vs a 40&nbsp;h week</mark>
+    solo, zero-slack cross-blocked pairs, <mark class="db">2,220 min per DRI</mark> net of meetings.
+    Every slip has a cause.</p>
+  </div>
+  <div class="card npc">
+    <h3>Coworkers with habits</h3>
+    <p><mark class="npc">perfect</mark> closes on finish; <mark class="npc">heads_down</mark> parks
+    work in review and stalls partners; <mark class="npc">free_spirit</mark> picks at seeded random.
+    Stalled handoffs emerge from the mechanics.</p>
+  </div>
+  <div class="card evt">
+    <h3>Two sources of truth</h3>
+    <p>The Jira board and the meeting notes can disagree — in one week,
+    <mark class="evt">25 tasks live only in transcripts</mark> while the board stays empty.
+    Dashboards lie; meetings don't.</p>
+  </div>
+  <div class="card agent">
+    <h3>PM = communication only</h3>
+    <p>The agent's sole action is <mark class="agent">send_slack</mark>, with two levers: naming a
+    person closes their review; "please pick up KEY" preempts them onto it. No doing the work, no
+    fiat.</p>
+  </div>
+  <div class="card act">
+    <h3>Deterministic replay</h3>
+    <p><mark class="act">Same seed → same week, minute for minute</mark> (SQLite world + immutable
+    seed snapshot). Outcome changes are attributable to the agent, not noise.</p>
+  </div>
+</div>
+
+<h2>The evaluation harness</h2>
+
+<p>Each scenario engineers one failure mode, pins its unmanaged baseline (seed 42), and leaves
+headroom only the PM levers can recover. A do-nothing PM lands exactly on the baseline.</p>
+
+<table>
+  <thead>
+    <tr><th>Scenario (+<code>_with_agent</code>)</th><th>Engineered failure</th><th>Unmanaged</th><th>The PM fix</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>single_engineer</code></td>
+      <td>Random picks let 20&nbsp;h of backlog displace the 40&nbsp;h must-ship project.</td>
+      <td>6/11 — project stranded</td>
+      <td>"please pick up KEY"</td>
+    </tr>
+    <tr>
+      <td><code>two_engineers</code></td>
+      <td>Parked reviews + dependency-blind picks stall zero-slack cross handoffs.</td>
+      <td>8/16 — NOT DONE</td>
+      <td>Name clare to close reviews</td>
+    </tr>
+    <tr>
+      <td><code>team_no_jira</code></td>
+      <td>The whole project is tracked in meeting notes; the board never holds a ticket.</td>
+      <td>15/25 — invisible on the board</td>
+      <td>Read the transcripts</td>
+    </tr>
+  </tbody>
+</table>
+
+<ul class="tight">
+  <li><strong>Mechanical grading</strong> — <code>pm eval</code> scores completion from ground truth
+      (notes table, board fallback) plus hours closed; no LLM judge.</li>
+  <li><strong>Cost in the score</strong> — every model call and tool call is token-logged to
+      <code>agent.jsonl</code> and summed into the report.</li>
+  <li><strong>Hermetic tests</strong> — scripted fake clients pin the do-nothing baseline; real
+      models slot in via one env var.</li>
+  <li><strong>Auditable</strong> — the event log, transcripts, and HTML viz replay <em>why</em> the
+      week ended as it did.</li>
+</ul>
+
+<p class="caveat"><strong>Scope, honestly:</strong> one week of execution dynamics — picks,
+handoffs, reviews, visibility. No scope negotiation or estimation error, by design: it isolates the
+read-the-room-then-nudge loop a PM agent must master.</p>
+
+<footer>
+  Companion to <a href="architecture.html">architecture.html</a>; verified outcomes are cataloged
+  in <span class="path">pm/scenarios/scenarios.md</span>.
+</footer>
+
+</main>
+</body>
+</html>

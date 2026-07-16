@@ -26,10 +26,10 @@ from pm.scenarios import (
     runner,
     team_no_jira,
     team_no_jira_with_agent,
-    test_single_engineer_free_spirit,
-    test_single_engineer_with_agent,
-    test_two_engineers_mixed,
-    test_two_engineers_mixed_with_agent,
+    single_engineer,
+    single_engineer_with_agent,
+    two_engineers,
+    two_engineers_with_agent,
 )
 from pm.sim.narrate import format_entry
 from pm.sim.simulation import Simulation
@@ -40,10 +40,10 @@ from pm.viz import write_agent_activity, write_calendars, write_jira_tasks
 SCENARIOS = {
     "team_no_jira": team_no_jira,
     "team_no_jira_with_agent": team_no_jira_with_agent,
-    "test_single_engineer_free_spirit": test_single_engineer_free_spirit,
-    "test_single_engineer_with_agent": test_single_engineer_with_agent,
-    "test_two_engineers_mixed": test_two_engineers_mixed,
-    "test_two_engineers_mixed_with_agent": test_two_engineers_mixed_with_agent,
+    "single_engineer": single_engineer,
+    "single_engineer_with_agent": single_engineer_with_agent,
+    "two_engineers": two_engineers,
+    "two_engineers_with_agent": two_engineers_with_agent,
 }
 
 app = typer.Typer(

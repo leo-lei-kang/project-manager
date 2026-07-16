@@ -39,6 +39,9 @@ class Engine:
         self._next_seq = store.max_event_seq() + 1
         # Per-NPC durative-work scheduler; a no-op until activities are requested.
         self.activities = ActivityManager(self)
+        # Completion hook: fired once per finished event from step(), after the
+        # completion loop. The driver installs NPC reactions here.
+        self.on_event_done: Callable[["Engine", Event], None] | None = None
 
     # -- scheduling ------------------------------------------------------------
 
@@ -109,11 +112,18 @@ class Engine:
         for event in self.store.pending_events_starting_at(now):
             event.start(self)
             transitioned.append(event)
+        finished: list[Event] = []
         for event in self.store.active_events():
             if event.is_finished(now):
                 event.done(self)
                 self.store.clear_occupancy(event.id)  # free the NPC's calendar block
                 transitioned.append(event)
+                finished.append(event)
+        # Fire completion hooks after the loop (mirrors ActivityManager.tick):
+        # a hook may schedule() or request() follow-up work.
+        if self.on_event_done is not None:
+            for event in finished:
+                self.on_event_done(self, event)
         return transitioned
 
     def advance(self, minutes: int) -> list[Event]:

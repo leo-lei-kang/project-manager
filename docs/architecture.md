@@ -47,8 +47,7 @@ The engine advances **one minute at a time**:
 The **sync/async seam** is `Engine.perform_action(actor, cost, effect)`: the
 effect (an agent's tool mutation) runs at the *current* tick with no time passing,
 then `advance(cost)` lets background events start/complete during that window.
-Nothing runs on a real thread — the week is driven entirely by the clock. (See
-[sync-vs-async.md](sync-vs-async.md).)
+Nothing runs on a real thread — the week is driven entirely by the clock.
 
 ## How world state is stored
 
@@ -84,10 +83,10 @@ result bundle:
 
 `pm/scenarios/runner.py::drive` is the shared driver used by both `pm sim` and the
 catalog test. It builds a `WorkDriver`, installs it as the `ActivityManager`'s
-completion hook, sweeps once at kickoff, and runs the week with an `on_tick` that
-carries only the optional PM review hook (`agent_review_hook`, run first so a
-same-tick close/directive lands before anyone picks) and the standup/Slack close
-reactions — then fires a final PM close-out. The registered scenarios and their
+completion hooks (`on_activity_done` for finished activities, `on_event_done`
+for the standup/Slack closes), sweeps once at kickoff, and runs the week with an
+`on_tick` that carries only the optional PM review hook (`agent_review_hook`) —
+then fires a final PM close-out. The registered scenarios and their
 verified outcomes are cataloged in
 [`pm/scenarios/scenarios.md`](../pm/scenarios/scenarios.md).
 
@@ -146,15 +145,19 @@ Three moving parts share the one clock, and each fires the others:
   **trigger an event** — the effect schedules a `SlackSendEvent`, which lands
   through the event pipeline during the cost window (the same path NPC
   messages take, so world reactions fire for it too).
-- **Event done → reactions.** When `step()` completes an event, the
-  standup/Slack close reactions fire (`WorkDriver.on_tick`, composed by the
-  runner): a standup ending or a Slack message naming a person closes their
-  `in_review` work, then re-sweeps the driver so newly unblocked dependents
-  dispatch immediately — and a "pick up" directive preempts the ticket being
-  worked (the directed one runs just above normal work priority; the
-  interrupted ticket resumes afterwards).
+- **Event done → reactions.** When `step()` completes an event, the close
+  reactions fire (`WorkDriver.on_event_done`, installed as the Engine's
+  event-completion hook — the NPC component never touches the `Simulation`
+  loop): a Slack send schedules a `slack.read` for each person named, a
+  seeded-random 1–60 minutes later; a standup ending — or a person reading a
+  message that names them — closes their `in_review` work, then re-sweeps the
+  driver so newly unblocked dependents dispatch immediately. A "pick up"
+  directive, taken at read time, preempts the ticket being worked (the
+  directed one runs just above normal work priority; the interrupted ticket
+  resumes afterwards).
 - **Meetings preempt work.** A `MeetingEvent`'s `_on_start` requests an
-  `in_meeting` bridge activity (priority 100, no effects) for its attendees,
+  bridged `meeting` activity (priority 100; `event_id` in its params makes
+  the kind's effects no-op) for its attendees,
   which interrupts their `jira_work` (40); `OOOEvent` bridges the same way at
   priority 200. One `started` activity per NPC attender is exactly what
   interrupt/resume arbitrates.
@@ -175,8 +178,8 @@ flowchart LR
   step -- "tick() — burn down · complete" --> acts
   acts -- "on_activity_done" --> npc
   npc -- "request jira_work (next issue) · status SlackSendEvent" --> acts
-  ev -- "meeting starts → in_meeting bridge interrupts work" --> acts
-  ev -- "done: standup/mention closes in_review, re-sweeps" --> npc
+  ev -- "meeting starts → bridged meeting activity interrupts work" --> acts
+  ev -- "done → on_event_done: close in_review, re-sweep" --> npc
   ev -- "_on_start / _on_done" --> fx
   acts -- "on_start / on_done" --> fx
 
@@ -244,7 +247,8 @@ resolved schedule.
 ### Activity manager (runtime, per NPC)
 
 `pm/sim/activity.py::ActivityManager` is the richer, runtime model of *doing*. An
-**Activity** (meeting, jira_work, write_doc, review_doc, coffee_break, …) runs with
+**Activity** (meeting, jira_work, write_doc, review_doc, slack_send/read,
+coffee_break, …) runs with
 a state machine:
 
 ```
@@ -262,8 +266,9 @@ attender is already in an equal-or-higher activity, the incoming one waits
 effect hooks).
 
 The two mechanisms meet at the **bridge**: `MeetingEvent._on_start` requests an
-`in_meeting` activity (100, no effects — the event stays the single writer of
-the meeting, transcript, and informal-task rows) for its attendees, and
+`meeting` activity (100) for its attendees — `event_id` in its params makes
+the kind's effects no-op, so the event stays the single writer of the meeting,
+transcript, and informal-task rows — and
 `OOOEvent._on_start` an `ooo` activity (200), so calendar events preempt
 activity work exactly as they preempt event work. When an activity completes,
 the manager fires its `on_activity_done` hook — the seam where the

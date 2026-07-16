@@ -11,8 +11,8 @@ from pm.exceptions import ConfigurationError
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
 from pm.npc.persona import PERFECT
-from pm.scenarios import runner, team_no_jira, test_two_engineers_mixed
-from pm.scenarios.test_two_engineers_mixed import PROJECT_ID, build
+from pm.scenarios import runner, team_no_jira, two_engineers
+from pm.scenarios.two_engineers import PROJECT_ID, build
 from pm.world.models import Person, Project
 
 EXPECTED_COUNTS = {"alice": 8, "clare": 8}
@@ -21,7 +21,7 @@ EXPECTED_COUNTS = {"alice": 8, "clare": 8}
 def test_board_project_done(tmp_path):
     # The two-engineer board worked perfectly: every ticket closes.
     env = build(run_id="eval-ok", root=tmp_path, member_persona=PERFECT)
-    runner.drive(env, test_two_engineers_mixed)
+    runner.drive(env, two_engineers)
     report = evaluate(env.store)
 
     assert report.goal_accomplished

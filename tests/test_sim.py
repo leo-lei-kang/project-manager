@@ -173,6 +173,22 @@ def test_perform_action_applies_effect_then_advances(engine: Engine) -> None:
     assert any(e.type.value == "slack.send" for e in fired)
 
 
+def test_on_event_done_fires_once_per_completed_event(engine: Engine) -> None:
+    _seed_people(engine.store)
+    _seed_channel(engine.store)
+    seen = []
+    engine.on_event_done = lambda eng, event: seen.append(
+        (event.type.value, eng.clock.now()))
+    engine.schedule(
+        SlackSendEvent(
+            owner_id="u1", start_tick=2,
+            payload={"message_id": "m1", "channel_id": "c1", "body": "hi"},
+        )
+    )
+    engine.advance(5)
+    assert seen == [("slack.send", 2)]
+
+
 def test_advance_to_rejects_past(engine: Engine) -> None:
     engine.advance(10)
     with pytest.raises(ValueError):

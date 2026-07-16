@@ -6,7 +6,7 @@ is the observed `pm eval` result (seed 42).
 
 **Boards** (each `pm/scenarios/<name>.py`):
 
-- `test_single_engineer_free_spirit` — alice alone carries the whole Meeting
+- `single_engineer` — alice alone carries the whole Meeting
   Transcripts v1 push (`pm/transcript/project_single_engineer.md`): six
   high-priority project tasks (40 h — exactly her meeting-free week) plus five
   low-priority backlog tickets (20 h) the week cannot also absorb. The verdict
@@ -15,7 +15,7 @@ is the observed `pm eval` result (seed 42).
   Remaining section. Personas default to `free_spirit` (backlog picks displace
   project work); `build(member_persona=PERFECT)` ships the whole project at
   exactly Fri 17:00.
-- `test_two_engineers_mixed` — alice (backend) + clare (frontend) split the same
+- `two_engineers` — alice (backend) + clare (frontend) split the same
   project (`pm/transcript/project_two_engineers.md`), 40 h each, zero slack:
   every odd task blocks the partner's next even task just-in-time. Personas
   default to the stalling mix (alice `free_spirit`, clare `heads_down`);
@@ -35,17 +35,19 @@ is the observed `pm eval` result (seed 42).
 WorkDriver`): one kickoff sweep dispatches everyone's first ticket as a
 `jira_work` activity, and every activity completion re-sweeps the roster (a
 finish can unblock anyone). There is no per-tick polling. Meetings preempt work
-through the `in_meeting` bridge activity — in-progress work is interrupted and
+through the bridged `meeting` activity — in-progress work is interrupted and
 resumes with its remaining minutes intact, so interruptions are lossless; a
 zero-slack board still lands exactly on Fri 17:00. The standup/Slack close
 reactions run in every `pm sim` week.
 
-**PM levers** — the world reacts to Slack (`pm/sim/npc.py::_on_slack_send`):
-a message naming a person closes their `in_review` work, and a "please pick up
-<KEY>" directive bumps that ticket to priority 0 — the level even a free spirit
-works first. These are the levers a PM agent steers with (the agent's only
-*action* tool is `send_slack`). In `test_single_engineer_with_agent`,
-`test_two_engineers_mixed_with_agent`, and `team_no_jira_with_agent` the PM is
+**PM levers** — the world reacts to Slack (`pm/sim/npc.py`): each person named
+in a message reads it a seeded-random 1–60 minutes later (`_on_slack_send`
+schedules the `slack.read`); on read (`_on_slack_read`) they close their
+`in_review` work, and a "please pick up <KEY>" directive bumps that ticket to
+priority 0 — the level even a free spirit works first, preempting their current
+ticket. These are the levers a PM agent steers with (the agent's only
+*action* tool is `send_slack`). In `single_engineer_with_agent`,
+`two_engineers_with_agent`, and `team_no_jira_with_agent` the PM is
 an **LLM** reviewing the run every four sim-hours through those tools — a
 scenario may expose
 `agent_review_hook`, which `pm sim` composes into the run automatically. Under
@@ -92,14 +94,14 @@ Each row is its own scenario, with its personas baked in — the scenario name i
 run id and output folder, so no other flags are needed:
 
 ```bash
-uv run pm sim --scenario test_single_engineer_free_spirit  # 1
-uv run pm sim --scenario test_two_engineers_mixed          # 2
+uv run pm sim --scenario single_engineer  # 1
+uv run pm sim --scenario two_engineers          # 2
 uv run pm sim --scenario team_no_jira                      # the notes-only week
 ```
 
 Three more scenarios round out the set — the same three weeks with the LLM PM
-attached: `test_single_engineer_with_agent` (the free-spirit solo board),
-`test_two_engineers_mixed_with_agent` (the stalling pair), and
+attached: `single_engineer_with_agent` (the free-spirit solo board),
+`two_engineers_with_agent` (the stalling pair), and
 `team_no_jira_with_agent` (the notes-only week, where only a PM that reads the
 transcripts sees the real project). A PM that steers nothing reproduces the
 unmanaged rows above, which is what the hermetic tests pin with a scripted
@@ -114,7 +116,7 @@ ticket timeline. Everything for a scenario lives under `runs/<name>/`.
 The LLM agent's only *action* tool is `send_slack`, so it steers the world
 through the two Slack levers above. Inside a simulated week it runs as a
 scenario's `agent_review_hook`, which the runner (`pm/scenarios/runner.py`)
-composes into the sim loop — `pm sim --scenario test_single_engineer_with_agent`
+composes into the sim loop — `pm sim --scenario single_engineer_with_agent`
 is the live example (needs `OPENROUTER_API_KEY`), leaving
 `runs/<name>/agent-<model>.jsonl` for `pm eval` (token totals) and `pm viz`
 (`agent_activity.html` timeline). To exercise the LLM loop itself against a

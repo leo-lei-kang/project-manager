@@ -11,7 +11,7 @@ from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
 from pm.agent.log import AgentLog, agent_log_name
-from pm.scenarios import team_no_jira, test_two_engineers_mixed
+from pm.scenarios import team_no_jira, two_engineers
 from pm.sim.engine import Engine
 from pm.viz import write_agent_activity, write_calendars, write_jira_tasks
 from pm.viz.agent_activity import render_agent_activity_html
@@ -203,7 +203,7 @@ def test_render_agent_activity_html_markers_and_entries():
 # -- end to end ----------------------------------------------------------------
 
 def test_write_agent_activity_reads_run_log(tmp_path):
-    env = test_two_engineers_mixed.build(run_id="e2e-agent", root=tmp_path / "runs")
+    env = two_engineers.build(run_id="e2e-agent", root=tmp_path / "runs")
     env.close()
     run_dir = tmp_path / "runs" / "e2e-agent"
 
@@ -228,7 +228,7 @@ def test_writers_render_scenario_runs(tmp_path):
         assert name in calendars
     assert "Daily standup" in calendars
 
-    env = test_two_engineers_mixed.build(run_id="e2e-jira", root=tmp_path / "runs")
+    env = two_engineers.build(run_id="e2e-jira", root=tmp_path / "runs")
     tasks = [i.id for i in JiraRepository(env.store).list_issues(issue_type="task")]
     env.close()
     jira_path = write_jira_tasks("e2e-jira", root=tmp_path / "runs")

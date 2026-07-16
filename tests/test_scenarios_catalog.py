@@ -25,12 +25,12 @@ _HIGH_PRIORITY = 1
 # name -> (done_tasks, total_tasks, goal_accomplished, launch_blockers_left)
 # blockers_left is None for the non-solo boards. Verified at seed 42 (scenarios.md).
 EXPECTED = {
-    "team_no_jira":                          (15, 25, False, None),
-    "team_no_jira_with_agent":               (15, 25, False, None),
-    "test_single_engineer_free_spirit":      (6, 11, False, 2),
-    "test_single_engineer_with_agent":       (6, 11, False, 2),
-    "test_two_engineers_mixed":              (8, 16, False, None),
-    "test_two_engineers_mixed_with_agent":   (8, 16, False, None),
+    "team_no_jira":                (15, 25, False, None),
+    "team_no_jira_with_agent":     (15, 25, False, None),
+    "single_engineer":             (6, 11, False, 2),
+    "single_engineer_with_agent":  (6, 11, False, 2),
+    "two_engineers":               (8, 16, False, None),
+    "two_engineers_with_agent":    (8, 16, False, None),
 }
 
 
@@ -72,7 +72,7 @@ def test_cli_writes_full_bundle_to_run_folder(tmp_path, monkeypatch) -> None:
     # sim + eval + viz over the scenario-only CLI leave a self-contained runs/<name>/.
     monkeypatch.chdir(tmp_path)
     runner_cli = CliRunner()
-    name = "test_single_engineer_free_spirit"
+    name = "single_engineer"
     for args in (["sim", "--scenario", name],
                  ["eval", "--scenario", name],
                  ["viz", "--scenario", name]):

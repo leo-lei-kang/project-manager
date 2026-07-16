@@ -33,7 +33,7 @@ from pm.sim.clock import WEEK_END_TICK
 from pm.transcript import project_tasks
 from pm.world.models import Project
 
-SCENARIO = "test_two_engineers_mixed"
+SCENARIO = "two_engineers"
 
 CAST = [c for c in _FULL_CAST if c.id in ("alice", "clare")]  # backend + frontend
 MEMBERS = [c.id for c in CAST]

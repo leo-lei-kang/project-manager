@@ -3,8 +3,8 @@
 An **Activity** is a durative thing an NPC (or several) does over sim-time. It is fully
 self-contained:
 
-  * a **kind** (meeting, jira_work, write_doc, review_doc, slack_send, coffee_break,
-    watch_worldcup, …),
+  * a **kind** (meeting, jira_work, write_doc, review_doc, slack_send, slack_read,
+    coffee_break, …),
   * one or more **attenders** (`attendees`, at least one),
   * a **duration** (`duration_needed`) that burns down while running, and
   * a **state**: ``backlogged → started → (interrupted ↔ started) → done`` (+ ``cancelled``).
@@ -69,6 +69,8 @@ def _noop(engine: "Engine", a: Activity) -> None:
 
 def _meeting_start(engine: "Engine", a: Activity) -> None:
     p, now = a.params, engine.clock.now()
+    if "event_id" in p:
+        return  # bridged from a MeetingEvent — the event writes the meeting row
     engine.store.add_meeting(Meeting(
         id=p.get("meeting_id", f"mtg-{a.id}"),
         title=p.get("title", p.get("kind", "meeting")),
@@ -81,6 +83,8 @@ def _meeting_start(engine: "Engine", a: Activity) -> None:
 def _meeting_done(engine: "Engine", a: Activity) -> None:
     # Every meeting leaves a transcript when it ends (empty body by default).
     p = a.params
+    if "event_id" in p:
+        return  # bridged from a MeetingEvent — the event writes the transcript
     meeting_id = p.get("meeting_id", f"mtg-{a.id}")
     engine.store.add_transcript(Transcript(
         id=p.get("transcript_id", f"tr-{meeting_id}"), meeting_id=meeting_id,
@@ -160,17 +164,20 @@ class ActivityKind:
 
 
 ACTIVITY_KINDS: dict[str, ActivityKind] = {
+    # ``meeting`` doubles as the MeetingEvent bridge: bridged requests carry
+    # ``event_id`` in params, and the hooks skip their effects for those — the
+    # event stays the single writer of the meeting/transcript rows.
     "meeting": ActivityKind("meeting", 100, on_start=_meeting_start, on_done=_meeting_done),
-    # Bridge kinds: requested by MeetingEvent/OOOEvent on start so calendar events
-    # preempt activity work. No effects — the event stays the single writer.
-    "in_meeting": ActivityKind("in_meeting", 100),
+    # Bridge kind requested by OOOEvent on start; no effects.
     "ooo": ActivityKind("ooo", 200),
     "jira_work": ActivityKind("jira_work", 40, on_start=_jira_work_start, on_done=_jira_work_done),
     "write_doc": ActivityKind("write_doc", 35, on_done=_write_doc_done),
     "review_doc": ActivityKind("review_doc", 30, on_done=_review_doc_done),
     "slack_send": ActivityKind("slack_send", 20, on_done=_slack_send_done),
-    "coffee_break": ActivityKind("coffee_break", 5),
-    "watch_worldcup": ActivityKind("watch_worldcup", 5),
+    "slack_read": ActivityKind("slack_read", 20),
+    # Same priority as work: a break in progress isn't interrupted by new work,
+    # and new breaks wait behind work.
+    "coffee_break": ActivityKind("coffee_break", 40),
 }
 
 _DDL = (

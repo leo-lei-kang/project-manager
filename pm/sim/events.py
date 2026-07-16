@@ -229,9 +229,12 @@ class SlackSendEvent(Event):
 
 
 class SlackReadEvent(Event):
-    """A coworker reads a channel — drives NPC awareness. payload: channel_id.
+    """A coworker reads a message that named them. payload: channel_id, message_id, body.
 
-    The read itself is the recorded outcome (event row + log); there is no separate
+    Scheduled by the slack.send reaction for each named person, a seeded-random
+    1–60 minutes after the send (see :mod:`pm.sim.npc`); the read reaction then
+    closes the reader's ``in_review`` work and takes "pick up" directives. The
+    read itself is the recorded outcome (event row + log); there is no separate
     world table for it, so both hooks are no-ops beyond the base logging.
     """
 
@@ -339,13 +342,14 @@ class MeetingEvent(Event):
         engine.store.log_event(
             now, actor=self.owner_id, kind="meeting.kind", payload={"kind": p.get("kind", "adhoc")}
         )
-        # Bridge into the activity system: an ``in_meeting`` activity (priority 100,
-        # no effects — this event stays the single writer) occupies the attendees so
-        # the meeting preempts any activity work they are in.
+        # Bridge into the activity system: a ``meeting`` activity (priority 100)
+        # occupies the attendees so the meeting preempts any activity work they
+        # are in. ``event_id`` in the params makes the kind's hooks skip their
+        # effects — this event stays the single writer.
         if self.duration > 0:
             people = sorted(set(p.get("attendees", [])) | {self.owner_id})
             engine.activities.request(
-                "in_meeting", people, self.duration, now,
+                "meeting", people, self.duration, now,
                 params={"meeting_id": p["meeting_id"], "event_id": self.id},
             )
 

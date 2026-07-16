@@ -47,7 +47,7 @@ pm/
   env/          # Env facade over store + sim kernel (make/load/reset/db)
   eval/         # deterministic evaluation: project completion + closed Jira hours
   viz/          # static-HTML renderers: per-person calendars, ticket week-timeline
-  scenarios/    # code-seeded scenarios (team_no_jira, test_two_engineers_mixed, test_single_engineer_free_spirit) + generator
+  scenarios/    # code-seeded scenarios (team_no_jira, two_engineers, single_engineer) + generator
   cli.py        # `pm sim` / `pm eval` / `pm viz`
 examples/       # runnable demos (see Examples below)
 tests/          # pytest suite covering db, sim, jira, npc, agent, env, scenarios
@@ -85,22 +85,22 @@ Every command takes a single `--scenario`, whose name is the run id and output
 folder — all results for a scenario live under `runs/<scenario>/`.
 
 ```bash
-# Build a scenario run and simulate its work week -> runs/test_two_engineers_mixed/{world.db, seed.db}.
-uv run pm sim --scenario test_two_engineers_mixed
+# Build a scenario run and simulate its work week -> runs/two_engineers/{world.db, seed.db}.
+uv run pm sim --scenario two_engineers
 
-# Evaluate the outcome (also written to runs/test_two_engineers_mixed/eval.json).
-uv run pm eval --scenario test_two_engineers_mixed
+# Evaluate the outcome (also written to runs/two_engineers/eval.json).
+uv run pm eval --scenario two_engineers
 
 # Render the ticket week-timeline + per-person calendars to static HTML:
-# writes runs/test_two_engineers_mixed/{calendars,jira_tasks}.html.
-uv run pm viz --scenario test_two_engineers_mixed
+# writes runs/two_engineers/{calendars,jira_tasks}.html.
+uv run pm viz --scenario two_engineers
 
 # Print the run's sim-time timeline (events, NPC decisions, agent calls).
-uv run pm log --scenario test_two_engineers_mixed
+uv run pm log --scenario two_engineers
 
 # Inspect the database directly.
-uv run sqlite3 runs/test_two_engineers_mixed/world.db '.tables'
-uv run sqlite3 runs/test_two_engineers_mixed/world.db 'SELECT * FROM meta;'
+uv run sqlite3 runs/two_engineers/world.db '.tables'
+uv run sqlite3 runs/two_engineers/world.db 'SELECT * FROM meta;'
 ```
 
 ## Running the simulation
@@ -109,7 +109,7 @@ The quickest way is `pm sim` — build a scenario run and simulate its work week
 (Mon 09:00 → Fri 17:00, NPC coworkers working the board) in one command:
 
 ```bash
-uv run pm sim --scenario test_two_engineers_mixed    # a mixed-persona board that misses the week
+uv run pm sim --scenario two_engineers    # a mixed-persona board that misses the week
 uv run pm sim --scenario team_no_jira                # a week tracked only in meeting notes
 # -> prints the simulated span (Mon 09:00 -> Fri 17:00) and the events fired.
 ```
@@ -119,8 +119,8 @@ input — there is no persona flag; **each scenario bakes in its own personas**.
 
 | Board | Stresses |
 |----------|----------|
-| `test_two_engineers_mixed` | two engineers splitting the transcripts project; tickets cross-block just-in-time |
-| `test_single_engineer_free_spirit` | one engineer, the 40-h transcripts project + 20 h of backlog — triage decides if it ships |
+| `two_engineers` | two engineers splitting the transcripts project; tickets cross-block just-in-time |
+| `single_engineer` | one engineer, the 40-h transcripts project + 20 h of backlog — triage decides if it ships |
 | `team_no_jira` | the five-member team's week tracked only in meeting notes; the Jira board stays empty |
 
 Each board ships as self-contained scenarios — a baseline persona and a
@@ -134,13 +134,13 @@ The same loop in code, for any scenario:
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.scenarios import test_two_engineers_mixed   # or test_single_engineer_free_spirit
+from pm.scenarios import two_engineers   # or single_engineer
 from pm.sim.simulation import Simulation
 
-env = test_two_engineers_mixed.build()              # seed cast + board
+env = two_engineers.build()              # seed cast + board
 api = JiraApi(JiraRepository(env.store), env.engine)
-Simulation(env).run(on_tick=assignee_pickup_hook(api, test_two_engineers_mixed.MEMBERS,
-                                                 test_two_engineers_mixed.PROJECT_ID))
+Simulation(env).run(on_tick=assignee_pickup_hook(api, two_engineers.MEMBERS,
+                                                 two_engineers.PROJECT_ID))
 env.close()
 ```
 
@@ -159,9 +159,9 @@ done — there is no deadline check. Separately, the report sums the hours of
 Jira tickets closed:
 
 ```bash
-uv run pm eval --scenario test_two_engineers_mixed          # human-readable report (+ runs/test_two_engineers_mixed/eval.json)
-uv run pm eval --scenario test_two_engineers_mixed --json   # the same report as JSON on stdout
-uv run pm eval --scenario test_two_engineers_mixed --project MT   # pick a project explicitly
+uv run pm eval --scenario two_engineers          # human-readable report (+ runs/two_engineers/eval.json)
+uv run pm eval --scenario two_engineers --json   # the same report as JSON on stdout
+uv run pm eval --scenario two_engineers --project MT   # pick a project explicitly
 ```
 
 ```
@@ -180,7 +180,7 @@ In code, the same evaluation is `pm.eval`'s pure functions over any `Store`:
 from pm.db.store import Store
 from pm.eval import evaluate, format_report
 
-store = Store.open("runs/test_two_engineers_mixed/world.db")
+store = Store.open("runs/two_engineers/world.db")
 print(format_report(evaluate(store)))        # or evaluate(store).goal_accomplished
 store.close()
 ```
@@ -213,7 +213,7 @@ Reads are free; only `send_slack` advances the clock. The tools are handed to an
 `model → tool call → result` loop in one process, no server or transport
 (`LLMAgent` + `InProcessBackend`). Inside a simulated week, the agent runs as
 the scenario runner's review hook (`pm/scenarios/runner.py`):
-`pm sim --scenario test_single_engineer_with_agent` has the LLM PM review the
+`pm sim --scenario single_engineer_with_agent` has the LLM PM review the
 board every four sim-hours (needs `OPENROUTER_API_KEY` in `.env`; model from
 `OPENROUTER_MODEL`). Every model round-trip and tool call is logged with token
 usage to `runs/<scenario>/agent-<model>.jsonl` (one file per driving model) and

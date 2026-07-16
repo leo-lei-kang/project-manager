@@ -31,7 +31,7 @@ from pm.sim.clock import WEEK_END_TICK
 from pm.transcript import project_tasks
 from pm.world.models import Project
 
-SCENARIO = "test_single_engineer_free_spirit"
+SCENARIO = "single_engineer"
 
 CAST = [c for c in _FULL_CAST if c.id == "alice"]
 MEMBERS = [c.id for c in CAST]

@@ -92,8 +92,8 @@ def test_two_works_serialize_per_npc(env):
 def test_coffee_backlogged_behind_work(env):
     m = env.engine.activities
     m.request("jira_work", ["priya"], 60, now=0)      # priority 40
-    coffee = m.request("coffee_break", ["priya"], 15, now=0)  # priority 5
-    assert m.get(coffee.id).state == "backlogged"     # work outranks the break
+    coffee = m.request("coffee_break", ["priya"], 15, now=0)  # priority 40 too
+    assert m.get(coffee.id).state == "backlogged"     # equal priority: no interrupt, the break waits
 
 
 # -- multi-attender meeting interrupts both, both resume ---------------------
@@ -227,7 +227,7 @@ def test_meeting_event_interrupts_activity_work_and_it_resumes(env):
     ))
     env.engine.advance(30)                     # meeting starts; bridge preempts work
     assert m.get(w.id).state == "interrupted"
-    assert m.started_for("priya").kind == "in_meeting"
+    assert m.started_for("priya").kind == "meeting"
     env.engine.advance(30)                     # meeting ends; work resumes
     assert m.started_for("priya").id == w.id
     env.engine.advance(90)                     # remaining work
@@ -271,7 +271,7 @@ def test_completion_hook_fires_at_meeting_end(env):
         payload={"meeting_id": "m1", "attendees": ["priya"]},
     ))
     env.engine.advance(11)
-    assert ("in_meeting", 11) in seen
+    assert ("meeting", 11) in seen
 
 
 # -- idle-filler -------------------------------------------------------------

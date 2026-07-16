@@ -14,8 +14,8 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.persona import PERFECT, FREE_SPIRIT
 from pm.scenarios import runner
-from pm.scenarios import test_single_engineer_free_spirit as scenario
-from pm.scenarios.test_single_engineer_free_spirit import (
+from pm.scenarios import single_engineer as scenario
+from pm.scenarios.single_engineer import (
     HIGH,
     HIGH_PRIORITY,
     LOW,

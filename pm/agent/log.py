@@ -3,9 +3,12 @@
 Lives at ``runs/<run_id>/agent-<model>.jsonl`` next to ``eval.json`` (one file
 per driving model, so runs re-driven with a different model keep separate
 logs). Each entry is a plain dict stamped with the sim ``tick`` it happened
-at; ``llm_call`` entries carry the model id and token usage (``input_tokens``
-/ ``output_tokens``), ``tool_call`` entries the tool name and arguments. Eval
-sums the tokens across all the run's agent logs; viz plots the ticks.
+at; ``llm_call`` entries carry the model id, token usage (``input_tokens``
+/ ``output_tokens``), and the round-trip texts — ``input`` (the messages newly
+sent: the full prompt on step 0, tool results after) and ``output`` (the
+reply's content and tool calls); ``tool_call`` entries the tool name and
+arguments. Eval sums the tokens across all the run's agent logs; viz plots
+the ticks.
 """
 
 from __future__ import annotations

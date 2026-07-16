@@ -1,6 +1,6 @@
 """The "Single Engineer with Agent" scenario — a free-spirit engineer + an LLM PM.
 
-Same overloaded solo board as :mod:`pm.scenarios.test_single_engineer_free_spirit`
+Same overloaded solo board as :mod:`pm.scenarios.single_engineer`
 (the six 40-h transcripts project tasks plus 20 h of backlog), with alice working
 as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
 priority — so backlog work displaces project tasks and the high-priority project
@@ -10,8 +10,10 @@ The agent-under-test (``pm``) is an **LLM** acting *during* the run: every four
 sim-hours the review hook (:func:`pm.agent.hook.llm_review_hook`) hands the model
 the agent tools; it reads the board and may post one short ``#eng`` message using
 its two levers (naming a person closes their in-review work; "please pick up <KEY>"
-preempts the assignee onto that ticket, resuming the dropped one afterwards). Every model round-trip and tool call is logged
-with token usage to ``runs/<run_id>/agent.jsonl``.
+preempts the assignee onto that ticket, resuming the dropped one afterwards —
+both take effect when the named person reads the message, within the hour).
+Every model round-trip and tool call is logged with token usage to
+``runs/<run_id>/agent.jsonl``.
 
 ``build(member_persona=...)`` seeds alice with the given persona (default:
 :data:`~pm.npc.persona.FREE_SPIRIT`). ``agent_review_hook(env)`` builds the LLM
@@ -32,12 +34,12 @@ from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import FREE_SPIRIT, Persona
-from pm.scenarios.test_single_engineer_free_spirit import PROJECT_ID, _seed_board
+from pm.scenarios.single_engineer import PROJECT_ID, _seed_board
 
 if TYPE_CHECKING:
     from pm.sim.simulation import Simulation
 
-SCENARIO = "test_single_engineer_with_agent"
+SCENARIO = "single_engineer_with_agent"
 CHANNEL = "eng"
 REVIEW_PERIOD = 240  # review every four sim-hours (60 min * 4)
 DEFAULT_MODEL = "openai/gpt-5.5-pro"
@@ -45,9 +47,10 @@ DEFAULT_MODEL = "openai/gpt-5.5-pro"
 PROMPT = (
     f"You are the PM for project '{PROJECT_ID}'. Review the Jira board with "
     f"read_jira_board and the '{CHANNEL}' Slack channel. You have two levers, both "
-    f"via one Slack message to '{CHANNEL}': naming a person (e.g. alice) closes "
+    f"via one Slack message to '{CHANNEL}' that take effect when the person reads "
+    "it (within the hour): naming a person (e.g. alice) makes them close "
     "their in-review work, and the exact phrase 'please pick up <TICKET-KEY>' makes "
-    "them drop their current ticket and work it immediately (the dropped ticket "
+    "them drop their current ticket and work yours first (the dropped ticket "
     "resumes afterwards). If a high-priority ticket is open and not "
     "being worked next, post ONE short message using a lever; if nothing needs "
     "steering, post nothing. Then reply with a one-line summary and no tool call."

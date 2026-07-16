@@ -213,7 +213,7 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
 
   <rect class="bx-drv" x="396" y="18" width="220" height="46"/>
   <text class="t" x="506" y="38" text-anchor="middle">runner.drive(env, module)</text>
-  <text class="s" x="506" y="54" text-anchor="middle">kickoff sweep · compose(PM hook, closes)</text>
+  <text class="s" x="506" y="54" text-anchor="middle">install hooks · kickoff sweep · on_tick: PM only</text>
 
   <line class="edge" x1="136" y1="41" x2="164" y2="41" marker-end="url(#arr)"/>
   <line class="edge" x1="366" y1="41" x2="394" y2="41" marker-end="url(#arr)"/>
@@ -238,12 +238,9 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <text class="s" x="316" y="146" text-anchor="middle">week loop: while now &lt; 2400 → on_tick, then step()</text>
   <line class="edge" x1="506" y1="64" x2="420" y2="108" marker-end="url(#arr)"/>
 
-  <!-- Row C: on_tick hooks -->
-  <path class="edge" d="M 460 158 C 640 170 700 240 702 350 C 703 440 660 478 618 496" marker-end="url(#arr)"/>
-  <text class="el" x="716" y="372" text-anchor="middle" transform="rotate(90 716 372)">on_tick: closes → re-sweep</text>
 
   <!-- Row D: Engine -->
-  <rect class="bx-out" x="16" y="290" width="660" height="280"/>
+  <rect class="bx-out" x="16" y="290" width="660" height="292"/>
   <text class="t" x="30" y="312">sim — pm/sim/ (Engine · events · activities · NPC component)</text>
 
   <rect class="bx-sim" x="32" y="326" width="628" height="64"/>
@@ -251,34 +248,36 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <text class="s" x="346" y="360" text-anchor="middle">schedule → calendar.reserve — order (start_tick, seq) · yield / bump: OOO 200 &gt; MEETING 100 &gt; JIRA 20</text>
   <text class="s" x="346" y="375" text-anchor="middle">perform_action — sync: effect now, then advance(cost) · step() — async: +1 min, start due, complete finished</text>
 
-  <rect class="bx-act" x="352" y="402" width="308" height="52"/>
-  <text class="t" x="506" y="422" text-anchor="middle">ActivityManager — sim/activity.py</text>
-  <text class="s" x="506" y="438" text-anchor="middle">one started per attender · interrupt/resume · on_activity_done → WorkDriver</text>
+  <rect class="bx-npc" x="32" y="402" width="270" height="64"/>
+  <text class="t" x="167" y="422" text-anchor="middle">ActivityManager — sim/activity.py</text>
+  <text class="s" x="167" y="438" text-anchor="middle">one started per attender · interrupt/resume</text>
+  <text class="s" x="167" y="452" text-anchor="middle">on_activity_done → WorkDriver</text>
 
   <line class="edge" x1="450" y1="158" x2="580" y2="324" marker-end="url(#arr)"/>
   <text class="el" x="500" y="240">step() every minute</text>
-  <line class="edge" x1="700" y1="222" x2="504" y2="345" marker-end="url(#arr)"/>
-  <text class="el" x="530" y="300">send_slack: action schedules a slack.send event</text>
-  <line class="edge" x1="591" y1="390" x2="591" y2="400" marker-end="url(#arr)"/>
+  <line class="edge" x1="770" y1="266" x2="640" y2="496" marker-end="url(#arr)"/>
+  <text class="el" x="758" y="286" text-anchor="end">send_slack: action schedules a slack.send event</text>
+  <line class="edge" x1="167" y1="390" x2="167" y2="400" marker-end="url(#arr)"/>
 
-  <!-- Row E: events + reactions -->
-  <rect class="bx-evt" x="16" y="498" width="430" height="64"/>
-  <text class="t" x="231" y="518" text-anchor="middle">Event effects — sim/events.py</text>
-  <text class="s" x="231" y="534" text-anchor="middle">_on_start / _on_done → messages · emails · meetings</text>
-  <text class="s" x="231" y="549" text-anchor="middle">transcripts · informal tasks · Jira transitions (via JiraApi)</text>
+  <!-- Row E: the NPC component (left) and event effects (right) -->
+  <rect class="bx-npc" x="32" y="498" width="190" height="64"/>
+  <text class="t" x="127" y="518" text-anchor="middle">NPC component — sim/npc.py</text>
+  <text class="s" x="127" y="534" text-anchor="middle">WorkDriver: kickoff +</text>
+  <text class="s" x="127" y="549" text-anchor="middle">completion sweeps · reactions</text>
 
-  <rect class="bx-npc" x="470" y="498" width="206" height="64"/>
-  <text class="t" x="573" y="518" text-anchor="middle">NPC component — sim/npc.py</text>
-  <text class="s" x="573" y="534" text-anchor="middle">WorkDriver: kickoff + completion sweeps</text>
-  <text class="s" x="573" y="549" text-anchor="middle">reactions: closes · directives</text>
+  <rect class="bx-evt" x="270" y="498" width="390" height="64"/>
+  <text class="t" x="465" y="518" text-anchor="middle">Event effects — sim/events.py</text>
+  <text class="s" x="465" y="534" text-anchor="middle">_on_start / _on_done → messages · emails · meetings</text>
+  <text class="s" x="465" y="549" text-anchor="middle">transcripts · informal tasks · Jira transitions (via JiraApi)</text>
 
-  <line class="edge" x1="231" y1="470" x2="231" y2="496" marker-end="url(#arr)"/>
-  <text class="el" x="240" y="488">start() / done()</text>
-  <line class="edge" x1="446" y1="530" x2="468" y2="530" marker-end="url(#arr)"/>
-  <line class="edge" x1="600" y1="496" x2="600" y2="456" marker-end="url(#arr)"/>
-  <text class="el" x="608" y="481">sweep → request(jira_work)</text>
-  <line class="edge" x1="500" y1="456" x2="500" y2="494" marker-end="url(#arr)"/>
-  <text class="el" x="492" y="478" text-anchor="end">on_activity_done</text>
+  <line class="edge" x1="340" y1="390" x2="340" y2="496" marker-end="url(#arr)"/>
+  <text class="el" x="332" y="420" text-anchor="end">start() / done()</text>
+  <line class="edge" x1="268" y1="530" x2="224" y2="530" marker-end="url(#arr)"/>
+  <text class="el" x="250" y="576" text-anchor="middle">event done → on_event_done: close, then re-sweep</text>
+  <line class="edge" x1="70" y1="496" x2="70" y2="468" marker-end="url(#arr)"/>
+  <text class="el" x="78" y="482">request(jira_work)</text>
+  <line class="edge" x1="190" y1="466" x2="190" y2="494" marker-end="url(#arr)"/>
+  <text class="el" x="198" y="482">on_activity_done</text>
 
   <!-- Row F: SQLite -->
   <rect class="bx-db" x="16" y="592" width="928" height="72"/>
@@ -286,8 +285,8 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <text class="m" x="480" y="632" text-anchor="middle">meta(current_tick) · event (the queue) · event_log · occupancy · person · channel/message · email · meeting</text>
   <text class="m" x="480" y="648" text-anchor="middle">transcript · task (informal) · document  +  issue / issue_dependency (pm/jira)  +  activity (sim/activity)</text>
 
-  <line class="edge" x1="231" y1="562" x2="231" y2="590" marker-end="url(#arr)"/>
-  <text class="el" x="240" y="580">single writer: Store</text>
+  <line class="edge" x1="500" y1="562" x2="500" y2="590" marker-end="url(#arr)"/>
+  <text class="el" x="508" y="582">single writer: Store</text>
   <line class="edge dash" x1="822" y1="266" x2="822" y2="590" marker-end="url(#arr)"/>
   <text class="el" x="830" y="430" text-anchor="middle" transform="rotate(90 830 430)">pure reads (no sim-time)</text>
 
@@ -300,8 +299,10 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <line class="edge dash" x1="511" y1="664" x2="511" y2="692" marker-end="url(#arr)"/>
 </svg>
 <figcaption>The dashed rectangle is the sim: engine, events, activities, and the NPC component
-(behavior + reactions, one module) live inside it. The runner wires it up (kickoff sweep; on_tick
-closes) and the agent path (LLM → AgentTools, in-process) meets it at the engine. Reads are free;
+(behavior + reactions, one module) live inside it. The NPC component's only edges are the two
+completion hooks and its requests — activities and events; nothing ties it to the week loop. The
+runner wires it up (installs hooks, kickoff sweep) and the agent path (LLM → AgentTools,
+in-process) meets it at the engine. Reads are free;
 the only agent mutation, <code>send_slack</code>, goes through <code>perform_action</code> and
 therefore costs sim-time.</figcaption>
 </figure>
@@ -309,8 +310,7 @@ therefore costs sim-time.</figcaption>
 <div class="legend">
   <span class="chip sim">sim core</span>
   <span class="chip evt">event</span>
-  <span class="chip act">activity</span>
-  <span class="chip npc">npc</span>
+  <span class="chip npc">npc (behavior + activities)</span>
   <span class="chip agent">agent</span>
   <span class="chip db">persistence</span>
   <span class="chip drv">driver</span>
@@ -432,7 +432,7 @@ on that row, not a second record). The engine rehydrates the right subclass from
     <tr><td><code>meeting</code></td><td><code>MeetingEvent</code><br>
         <span class="s">kind ∈ standup | adhoc | 1on1 | team</span></td>
         <td>durative</td><td>100</td>
-        <td><code>store.add_meeting</code>, plus an <code>in_meeting</code> bridge activity
+        <td><code>store.add_meeting</code>, plus a bridged <code>meeting</code> activity
             (priority 100, no effects) that occupies the attendees — interrupting any
             activity work they are in</td>
         <td><code>store.add_transcript</code> — <em>every</em> meeting leaves a transcript at its end tick
@@ -567,8 +567,8 @@ every started activity, completes those hitting zero, then re-dispatches.</figca
 <table>
   <thead><tr><th>Kind</th><th>Priority</th><th>on_start</th><th>on_done</th></tr></thead>
   <tbody>
-    <tr><td><code>meeting</code></td><td>100</td><td><code>add_meeting</code></td><td><code>add_transcript</code> (always — empty body by default)</td></tr>
-    <tr><td><code>in_meeting</code></td><td>100</td><td>—</td><td>— (bridge kind requested by <code>MeetingEvent</code>; the event stays the single writer)</td></tr>
+    <tr><td><code>meeting</code></td><td>100</td><td><code>add_meeting</code></td><td><code>add_transcript</code> (always — empty body by default). Both effects no-op when
+        bridged from a <code>MeetingEvent</code> (<code>event_id</code> in params) — the event stays the single writer</td></tr>
     <tr><td><code>ooo</code></td><td>200</td><td>—</td><td>— (bridge kind requested by <code>OOOEvent</code>)</td></tr>
     <tr><td><code>jira_work</code></td><td>40</td>
         <td>with <code>params.issue_key</code>: <code>todo | blocked → in_progress</code></td>
@@ -577,8 +577,8 @@ every started activity, completes those hitting zero, then re-dispatches.</figca
     <tr><td><code>write_doc</code></td><td>35</td><td>—</td><td><code>add_document</code></td></tr>
     <tr><td><code>review_doc</code></td><td>30</td><td>—</td><td>log <code>doc.reviewed</code></td></tr>
     <tr><td><code>slack_send</code></td><td>20</td><td>—</td><td><code>add_message</code></td></tr>
-    <tr><td><code>coffee_break</code></td><td>5</td><td>—</td><td>—</td></tr>
-    <tr><td><code>watch_worldcup</code></td><td>5</td><td>—</td><td>—</td></tr>
+    <tr><td><code>slack_read</code></td><td>20</td><td>—</td><td>— (the activity row records the read)</td></tr>
+    <tr><td><code>coffee_break</code></td><td>40</td><td>—</td><td>— (same priority as work: breaks aren't interrupted by new work, and wait behind it)</td></tr>
   </tbody>
 </table>
 
@@ -592,9 +592,9 @@ from <code>tick()</code> (after the burn loop, before re-dispatch) — the runne
 <code>WorkDriver</code>'s sweep there.</p>
 
 <div class="note">This is the live path for NPC work: the scenario catalog dispatches every ticket as a
-<code>jira_work</code> activity, and meetings/OOO reach in through their bridge kinds. Events remain the
-system for scheduled occurrences (meetings, OOO, communication latency) and for the procedural
-generator's <code>JiraTicketEvent</code> path.</div>
+<code>jira_work</code> activity, and meetings/OOO reach in as bridged <code>meeting</code> /
+<code>ooo</code> activities. Events remain the system for scheduled occurrences (meetings, OOO,
+communication latency) and for the procedural generator's <code>JiraTicketEvent</code> path.</div>
 
 <!-- ================================================================== -->
 <h2 id="triggers">7. How events, actions &amp; activities trigger each other</h2>
@@ -617,9 +617,11 @@ generator's <code>JiraTicketEvent</code> path.</div>
       the same path NPC messages take, so world reactions fire for it too.</li>
   <li><strong>Event done → reactions; meetings preempt work.</strong> When <code>step()</code>
       completes a standup or a Slack send, the close reactions fire
-      (<code>WorkDriver.on_tick</code>): naming a person closes their <code>in_review</code> work,
+      (<code>WorkDriver.on_event_done</code>, the Engine's event-completion hook — the NPC
+      component never touches the <code>Simulation</code> loop): naming a person closes their
+      <code>in_review</code> work,
       then the driver re-sweeps so unblocked dependents dispatch immediately. A
-      <code>MeetingEvent</code> starting requests an <code>in_meeting</code> bridge activity that
+      <code>MeetingEvent</code> starting requests a bridged <code>meeting</code> activity that
       interrupts its attendees' work (OOO bridges at priority 200).</li>
 </ul>
 
@@ -667,13 +669,13 @@ generator's <code>JiraTicketEvent</code> path.</div>
   <line class="edge" x1="250" y1="166" x2="368" y2="166" marker-end="url(#arr5)"/>
   <text class="el" x="309" y="158" text-anchor="middle">status SlackSendEvent</text>
   <line class="edge" x1="368" y1="198" x2="252" y2="198" marker-end="url(#arr5)"/>
-  <text class="el" x="309" y="226" text-anchor="middle">standup/mention done → close, re-sweep</text>
+  <text class="el" x="309" y="226" text-anchor="middle">done → on_event_done: close, re-sweep</text>
 
   <path class="edge" d="M 770 150 L 770 128 L 190 128 L 190 148" marker-end="url(#arr5)"/>
   <text class="el" x="480" y="122" text-anchor="middle">on_activity_done — every completion re-sweeps the roster</text>
 
   <line class="edge" x1="620" y1="176" x2="708" y2="176" marker-end="url(#arr5)"/>
-  <text class="el" x="664" y="168" text-anchor="middle">in_meeting bridge</text>
+  <text class="el" x="664" y="168" text-anchor="middle">meeting bridge</text>
 
   <line class="edge" x1="760" y1="72" x2="560" y2="148" marker-end="url(#arr5)"/>
   <text class="el" x="700" y="99" text-anchor="middle">start due · complete finished</text>
@@ -696,7 +698,7 @@ generator's <code>JiraTicketEvent</code> path.</div>
 </svg>
 <figcaption>The cycle to notice is the rose↔green loop: a finished activity fires
 <code>on_activity_done</code>, the <code>WorkDriver</code> sweep requests the next activities (and
-status events). Meetings reach into that loop from the event side via the <code>in_meeting</code>
+status events). Meetings reach into that loop from the event side via the bridged <code>meeting</code>
 bridge. Agent actions don't touch the loop directly — <code>send_slack</code> triggers a
 <code>SlackSendEvent</code> whose completion closes/redirects work through the reactions.</figcaption>
 </figure>
@@ -778,7 +780,7 @@ Scenarios swap them per member with <code>with_personas(cast, …)</code>.</p>
   <div class="card">
     <h4>Reactions — <span class="path">pm/sim/npc.py</span> (same component)</h4>
     <p>One handler per <code>EventType</code>, fired when an event <em>completes</em>;
-    <code>WorkDriver.on_tick</code> is what the runner composes — closes, then a sweep:</p>
+    <code>WorkDriver.on_event_done</code> is installed on the Engine — closes, then a sweep:</p>
     <ul>
       <li><code>MEETING</code> done → a <em>standup</em> prompts attendees to close their
           <code>in_review</code> work.</li>
@@ -892,7 +894,7 @@ Slack reactions turn it into board effects.</figcaption>
         <td>Full lever access via <code>send_slack</code>.</td></tr>
     <tr><td><strong>Visibility-only PM</strong></td>
         <td><code>agent_review_hook</code> in
-            <span class="path">scenarios/test_single_engineer_with_agent.py</span> — uses
+            <span class="path">scenarios/single_engineer_with_agent.py</span> — uses
             <code>AgentTools.read_jira_board</code> + a <code>SlackSendEvent</code></td>
         <td>every 240 ticks</td>
         <td>Posts board highlights only — never reorders picks (a contrast case).</td></tr>
@@ -931,14 +933,14 @@ leaks past it. Schema (version 2) highlights:</p>
 <code>MEMBERS</code>, <code>PROJECT_ID</code>, and optionally <code>agent_review_hook(env)</code>.
 The shared runner (<span class="path">scenarios/runner.py</span>) builds a <code>WorkDriver</code>,
 installs it as the <code>ActivityManager</code> completion hook, sweeps once at kickoff, and runs the
-week with an <code>on_tick</code> of the PM review hook (<strong>run first</strong>, so a same-tick
-close/directive lands before anyone picks) plus the standup/Slack close reactions — then fires one
+week with an <code>on_tick</code> of the PM review hook only — the closes ride the Engine's
+<code>on_event_done</code> hook — then fires one
 final PM close-out for work finishing on the last tick.</p>
 
 <table>
   <thead><tr><th>Scenario family</th><th>Setup</th><th>What it demonstrates</th></tr></thead>
   <tbody>
-    <tr><td><code>test_single_engineer_free_spirit*</code></td>
+    <tr><td><code>single_engineer*</code></td>
         <td>alice alone: the 40-hour "Meeting Transcripts v1" project
             (<span class="path">project_single_engineer.md</span>, priority 1) + 20 hours of backlog —
             a 60-hour board where triage decides whether the project ships; personas default
@@ -946,7 +948,7 @@ final PM close-out for work finishing on the last tick.</p>
         <td>FREE_SPIRIT lets backlog picks displace project tasks (a PERFECT override ships the
             whole project and nothing else); <code>_with_agent</code> adds the LLM PM reviewing
             the board.</td></tr>
-    <tr><td><code>test_two_engineers_mixed*</code></td>
+    <tr><td><code>two_engineers*</code></td>
         <td>two engineers splitting the same project
             (<span class="path">project_two_engineers.md</span>) with cross-dependencies; personas
             default to the stalling mix (alice free_spirit, clare heads_down)</td>

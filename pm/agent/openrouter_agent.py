@@ -77,12 +77,16 @@ class LLMAgent:
             {"role": "system", "content": self.system},
             {"role": "user", "content": goal},
         ]
+        sent_from = 0  # messages[sent_from:] = what this round-trip newly sent
         for step in range(self.max_steps):
             resp = await self.client.chat.completions.create(
                 model=self.model, messages=messages, tools=tools or None,
             )
             msg = resp.choices[0].message
+            new_input = messages[sent_from:]
             messages.append(msg.model_dump() if hasattr(msg, "model_dump") else msg)
+            # The assistant reply is this entry's ``output``, not the next ``input``.
+            sent_from = len(messages)
             calls = getattr(msg, "tool_calls", None)
             usage = getattr(resp, "usage", None)
             self._log({
@@ -90,6 +94,15 @@ class LLMAgent:
                 "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
                 "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
                 "tool_calls": [tc.function.name for tc in calls] if calls else [],
+                "input": new_input,
+                "output": {
+                    "content": msg.content,
+                    "tool_calls": [
+                        {"name": tc.function.name,
+                         "args": json.loads(tc.function.arguments or "{}")}
+                        for tc in (calls or [])
+                    ],
+                },
             })
             if not calls:
                 return msg.content or ""

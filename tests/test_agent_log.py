@@ -32,13 +32,22 @@ async def test_llm_agent_logs_round_trips_and_tool_calls() -> None:
 
     assert [e["kind"] for e in entries] == ["llm_call", "tool_call", "llm_call"]
     first, tool, last = entries
-    assert first == {"kind": "llm_call", "step": 0, "model": "fake/model",
-                     "input_tokens": 111, "output_tokens": 22,
-                     "tool_calls": ["read_jira_board"]}
+    assert {k: first[k] for k in ("kind", "step", "model", "input_tokens",
+                                  "output_tokens", "tool_calls")} == {
+        "kind": "llm_call", "step": 0, "model": "fake/model",
+        "input_tokens": 111, "output_tokens": 22, "tool_calls": ["read_jira_board"]}
     assert tool == {"kind": "tool_call", "name": "read_jira_board",
                     "args": {"project_id": "checkout"}}
     assert last["input_tokens"] == 333 and last["output_tokens"] == 44
     assert last["tool_calls"] == []
+
+    # step 0 input is the full prompt; later inputs are just the new tool results
+    assert [m["role"] for m in first["input"]] == ["system", "user"]
+    assert first["input"][1]["content"] == "check the board"
+    assert first["output"] == {"content": None, "tool_calls": [
+        {"name": "read_jira_board", "args": {"project_id": "checkout"}}]}
+    assert last["input"] == [{"role": "tool", "tool_call_id": "c1", "content": "{}"}]
+    assert last["output"] == {"content": "all done", "tool_calls": []}
 
 
 async def test_llm_agent_without_log_still_runs() -> None:

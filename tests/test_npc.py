@@ -9,7 +9,7 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST, MEMBERS, seed_cast
 from pm.sim.npc import REACTIONS, WorkDriver, available_work_for, react, react_on_tick
-from pm.sim.events import EventType, JiraTicketEvent, SlackSendEvent
+from pm.sim.events import EventType, JiraTicketEvent, SlackReadEvent, SlackSendEvent
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
 
@@ -136,6 +136,29 @@ def test_kickoff_only_no_polling_between_completions(api: JiraApi, env: Env) -> 
     assert api.get_issue(late.id).status == "in_progress"
 
 
+def test_pickup_log_lists_open_and_pool(api: JiraApi, env: Env) -> None:
+    # The pickup log shows the person's whole plate: every open assigned ticket
+    # with blocked/blocking flags, plus the unassigned discipline pool.
+    blocker = api.create_issue("checkout", "task", "Blocker", component="backend",
+                               estimate_minutes=30, assignee="alice", actor="erin")
+    dependent = api.create_issue("checkout", "task", "Dependent", component="backend",
+                                 estimate_minutes=30, assignee="alice",
+                                 depends_on=[blocker.id], actor="erin")
+    pool_issue = api.create_issue("checkout", "task", "Pool", component="backend",
+                                  estimate_minutes=30, actor="erin")
+    alice = next(c for c in CAST if c.id == "alice")
+    WorkDriver(api, [alice], "checkout").sweep(env.engine)
+
+    pickup = next(e for e in env.store.read_log() if e.kind == "npc.pickup")
+    assert pickup.payload["issue_key"] == blocker.id
+    briefs = {t["key"]: t for t in pickup.payload["open"]}
+    assert set(briefs) == {blocker.id, dependent.id}
+    assert briefs[dependent.id]["blocked"] and briefs[dependent.id]["blocking"] == 0
+    assert not briefs[blocker.id]["blocked"] and briefs[blocker.id]["blocking"] == 1
+    assert briefs[blocker.id]["priority"] == blocker.priority
+    assert [t["key"] for t in pickup.payload["pool"]] == [pool_issue.id]
+
+
 def test_pick_up_directive_preempts_current_ticket(api: JiraApi, env: Env) -> None:
     # A PM "please pick up" directive lands mid-ticket: alice interrupts her
     # current ticket, works the directed one first, then resumes the original.
@@ -149,10 +172,10 @@ def test_pick_up_directive_preempts_current_ticket(api: JiraApi, env: Env) -> No
     env.engine.advance(10)
     assert api.get_issue(current.id).status == "in_progress"
 
-    # The directive fires the reaction (bump to priority 0) then re-sweeps —
-    # WorkDriver.on_tick's wiring in miniature.
-    react(env.engine, SlackSendEvent(
-        owner_id="pm", start_tick=10,
+    # Alice reads the directive at tick 10: the reaction bumps to priority 0,
+    # then the re-sweep preempts — WorkDriver.on_event_done's wiring in miniature.
+    react(env.engine, SlackReadEvent(
+        owner_id="alice", start_tick=10,
         payload={"message_id": "m", "channel_id": "eng",
                  "body": f"alice please pick up {urgent.id}"}))
     driver.sweep(env.engine)
@@ -164,6 +187,56 @@ def test_pick_up_directive_preempts_current_ticket(api: JiraApi, env: Env) -> No
     assert api.get_issue(current.id).status == "in_progress"  # resumed
     env.engine.advance(60)                       # Current's remaining 50m
     assert api.get_issue(current.id).status == "done"
+
+
+def test_read_closes_only_the_readers_in_review(api: JiraApi, env: Env) -> None:
+    # A read closes the READER's parked work, not everyone named in the message.
+    mine = api.create_issue("checkout", "task", "Mine", estimate_minutes=5,
+                            assignee="alice", actor="erin")
+    theirs = api.create_issue("checkout", "task", "Theirs", estimate_minutes=5,
+                              assignee="clare", actor="erin")
+    for issue, pid in ((mine, "alice"), (theirs, "clare")):
+        api.transition_issue(issue.id, "in_progress", actor=pid)
+        api.transition_issue(issue.id, "in_review", actor=pid)
+
+    react(env.engine, SlackReadEvent(
+        owner_id="alice", start_tick=0,
+        payload={"message_id": "m", "channel_id": "eng",
+                 "body": "alice, clare: status?"}))
+
+    assert api.get_issue(mine.id).status == "done"
+    assert api.get_issue(theirs.id).status == "in_review"
+
+
+def test_directive_read_bumps_and_preempts_end_to_end(api: JiraApi, env: Env) -> None:
+    # Full chain through the engine hooks: send at tick 10 → alice reads within
+    # the hour → bump to priority 0 → her current ticket is interrupted, the
+    # directed one finishes first, the original resumes and completes.
+    env.store.db.execute("INSERT INTO channel (id, name, kind) VALUES ('eng','eng','channel')")
+    current = api.create_issue("checkout", "task", "Current", estimate_minutes=200,
+                               assignee="alice", actor="erin")
+    urgent = api.create_issue("checkout", "task", "Urgent", estimate_minutes=30,
+                              assignee="alice", actor="erin")
+    driver = WorkDriver(api, ["alice"], "checkout")
+    env.engine.activities.on_activity_done = driver.on_activity_done
+    env.engine.on_event_done = driver.on_event_done
+    driver.sweep(env.engine)                     # kickoff: picks Current
+    env.engine.schedule(SlackSendEvent(
+        owner_id="pm", start_tick=10,
+        payload={"message_id": "m", "channel_id": "eng",
+                 "body": f"alice please pick up {urgent.id}"}))
+
+    env.engine.advance(400)                      # past the read window + both estimates
+
+    reads = env.store.db.query_all(
+        "SELECT * FROM event WHERE type = 'slack.read' AND status = 'done'")
+    assert [r["owner_id"] for r in reads] == ["alice"]
+    assert 10 < reads[0]["done_tick"] <= 70      # read within the hour of the send
+    assert api.get_issue(urgent.id).priority == 0
+    assert "activity.interrupt" in {e.kind for e in env.store.read_log()}
+    done_urgent, done_current = api.get_issue(urgent.id), api.get_issue(current.id)
+    assert done_urgent.status == "done" and done_current.status == "done"
+    assert done_urgent.updated_tick < done_current.updated_tick  # urgent finished first
 
 
 def test_completion_sweep_redispatches_unblocked_partner(api: JiraApi, env: Env) -> None:

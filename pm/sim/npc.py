@@ -20,11 +20,16 @@ There is no per-tick polling: between completions, nothing dispatches.
 
 **Reactions** — how completed *events* feed back into behavior. :data:`REACTIONS`
 maps every :class:`~pm.sim.events.EventType` to a handler; the live ones are the
-standup/Slack closes (a ``when_asked`` persona's parked ``in_review`` work) and
-the event-path Jira cascade the procedural generator uses.
-:meth:`WorkDriver.on_tick` is the ``Simulation.run`` hook a driver's owner
-composes: it fires the close reactions for events done this tick, then re-sweeps
-so a close that unblocks a dependent dispatches it immediately.
+Slack read/send pair (a send schedules a delayed read for each person named; the
+*read* closes the reader's parked ``in_review`` work and takes "pick up"
+directives), the standup close, and the event-path Jira cascade the procedural
+generator uses. :meth:`WorkDriver.on_event_done` is the ``Engine``
+event-completion hook a driver's owner installs: it fires the close reaction,
+then re-sweeps so a close that unblocks a dependent dispatches it immediately.
+
+The component interacts with exactly two things — **activities** (request,
+``on_activity_done``) and **events** (schedule, ``on_event_done``); it never
+touches the ``Simulation`` loop.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ from pm.jira.repository import JiraRepository
 from pm.npc.cast import CastMember
 from pm.npc.persona import Persona, from_person
 from pm.sim.activity import ACTIVITY_KINDS
-from pm.sim.events import EventType, JiraTicketEvent, SlackSendEvent
+from pm.sim.events import EventType, JiraTicketEvent, SlackReadEvent, SlackSendEvent
 
 if TYPE_CHECKING:
     from pm.sim.activity import Activity
@@ -57,9 +62,10 @@ _URGENT_ACTIVITY_PRIORITY = ACTIVITY_KINDS["jira_work"].priority + 1
 
 Reaction = Callable[["Engine", "Event"], None]
 
-# Event types whose reactions close a ``when_asked`` persona's finished work,
-# distinct from the work cascade — see :meth:`WorkDriver.on_tick`.
-_CLOSE_EVENTS = (EventType.MEETING, EventType.SLACK_SEND)
+# Event types whose reactions steer the board — the standup/read closes and the
+# read-time directive bump (SLACK_SEND only schedules the reads) — followed by a
+# re-sweep; distinct from the work cascade. See :meth:`WorkDriver.on_event_done`.
+_CLOSE_EVENTS = (EventType.MEETING, EventType.SLACK_SEND, EventType.SLACK_READ)
 
 
 # --------------------------------------------------------------------------- #
@@ -106,6 +112,21 @@ def _in_flight(mine: list[Issue], dispatched: set[str]) -> bool:
         if i.id in dispatched and i.status not in _TERMINAL and i.status != "in_review":
             return True
     return False
+
+
+def _ticket_brief(repo: JiraRepository, issue: Issue) -> dict:
+    """One pickup-log line item: key, priority, status, blocked/blocking flags.
+
+    ``blocked`` also covers an issue being worked despite open deps (a freestyle
+    pick); ``blocking`` counts the open dependents that finishing it would unblock.
+    """
+    blocked = issue.status == "blocked" or any(
+        (dep := repo.get_issue(k)) is not None and dep.status not in _TERMINAL
+        for k in issue.depends_on
+    )
+    blocking = sum(1 for d in repo.dependents(issue.id) if d.status not in _TERMINAL)
+    return {"key": issue.id, "priority": issue.priority, "status": issue.status,
+            "blocked": blocked, "blocking": blocking}
 
 
 def _next_issue(
@@ -178,22 +199,21 @@ class WorkDriver:
         """``ActivityManager`` completion hook: any completion may unblock anyone."""
         self.sweep(engine)
 
-    def on_tick(self, sim: "Simulation") -> None:
-        """``Simulation.run`` hook: fire the close reactions, then re-sweep if any fired.
+    def on_event_done(self, engine: "Engine", event: "Event") -> None:
+        """``Engine`` event-completion hook: fire the close reaction, then re-sweep.
 
-        A standup ending or a Slack message naming a person closes their parked
-        ``in_review`` work — which can unblock a dependent, so the sweep dispatches
-        it immediately. Work chaining itself needs no tick hook: it rides
-        :meth:`on_activity_done`.
+        A standup ending, or a person reading a Slack message that names them,
+        closes their parked ``in_review`` work — which can unblock a dependent —
+        and a read directive bumps its ticket, so the sweep dispatches (or
+        preempts) immediately. Work chaining itself rides
+        :meth:`on_activity_done` — the component's only seams are the two
+        completion hooks (events and activities); nothing touches the
+        ``Simulation`` loop.
         """
-        now = sim.clock.now()
-        fired = False
-        for event in sim.store.events_done_at(now):
-            if event.type in _CLOSE_EVENTS:
-                react(sim.engine, event)
-                fired = True
-        if fired:
-            self.sweep(sim.engine)
+        if event.type not in _CLOSE_EVENTS:
+            return
+        react(engine, event)
+        self.sweep(engine)
 
     def sweep(self, engine: "Engine") -> None:
         """Dispatch the next issue for every member with nothing in flight."""
@@ -217,7 +237,7 @@ class WorkDriver:
                 continue
             if issue.assignee_id != pid:
                 self.api.assign_issue(issue.id, pid, actor=pid)
-            self._dispatch_issue(engine, pid, persona, issue, now)
+            self._dispatch_issue(engine, pid, persona, issue, now, discipline=discipline)
 
     def _preempt_if_directed(
         self, engine: "Engine", pid: str, mine: list[Issue], now: int,
@@ -241,21 +261,36 @@ class WorkDriver:
             return
         if issue.assignee_id != pid:
             self.api.assign_issue(issue.id, pid, actor=pid)
-        self._dispatch_issue(engine, pid, persona, issue, now,
+        self._dispatch_issue(engine, pid, persona, issue, now, discipline=discipline,
                              activity_priority=_URGENT_ACTIVITY_PRIORITY)
 
     def _dispatch_issue(
         self, engine: "Engine", pid: str, persona: Persona, issue: Issue, now: int,
-        *, activity_priority: int | None = None,
+        *, discipline: str | None = None, activity_priority: int | None = None,
     ) -> None:
         """Request the ``jira_work`` activity for ``issue`` and record the dispatch.
+
+        The pickup log carries the person's whole plate — every open assigned
+        ticket plus the unassigned discipline pool, as :func:`_ticket_brief`
+        dicts — so the log shows what the pick was chosen over. ``mine`` is
+        recomputed here: the sweep's list predates ``assign_issue``.
 
         ``auto_close`` carries the persona's board-update policy onto the activity
         so it can finish to ``done`` (on_finish) or hold in ``in_review``
         (when_asked) without the activity reaching back into persona state.
         """
+        mine = self.api.search(project_id=self.project_id, assignee=pid)
+        open_tickets = [_ticket_brief(self.api.repo, i) for i in mine
+                        if i.status not in _TERMINAL]
+        pool = (
+            [_ticket_brief(self.api.repo, i)
+             for i in available_work_for(self.api, self.project_id, discipline,
+                                         _pickable_statuses(persona))]
+            if discipline is not None else []
+        )
         engine.store.log_event(now, actor=pid, kind="npc.pickup",
-                               payload={"issue_key": issue.id})
+                               payload={"issue_key": issue.id,
+                                        "open": open_tickets, "pool": pool})
         engine.activities.request(
             "jira_work", [pid], issue.estimate_minutes, now,
             params={"issue_key": issue.id, "auto_close": persona.board_updates == "on_finish"},
@@ -279,8 +314,8 @@ class WorkDriver:
 def compose(*hooks: Callable[["Simulation"], None]) -> Callable[["Simulation"], None]:
     """Combine per-tick hooks into one (``Simulation.run`` takes a single ``on_tick``).
 
-    Runs the hooks in order each tick — pair a PM review hook with
-    :meth:`WorkDriver.on_tick` to drive the week.
+    Runs the hooks in order each tick — for composing PM review hooks; the NPC
+    component itself needs no tick hook.
     """
 
     def hook(sim: "Simulation") -> None:
@@ -343,25 +378,49 @@ def _on_meeting_done(engine: "Engine", event: "Event") -> None:
 
 
 def _on_slack_send(engine: "Engine", event: "Event") -> None:
-    """A Slack message naming a person prompts them to close their pending work.
+    """Each person named in the message reads it within the hour.
 
-    "Named" is a case-insensitive substring match of the person's ``name`` or ``id``
-    in the message body — deterministic, no model in the loop.
+    "Named" is a case-insensitive substring match of the person's ``name`` or
+    ``id`` in the message body — deterministic, no model in the loop. Each named
+    person (never the sender) gets a :class:`~pm.sim.events.SlackReadEvent` at a
+    seeded-random 1–60 minutes later; the message's *effects* fire when they read
+    it (see :func:`_on_slack_read`). A read scheduled past week end never fires —
+    a directive sent in the last hour can go unread.
+    """
+    body = event.payload.get("body", "")
+    low = body.lower()
+    if not low:
+        return
+    now = engine.clock.now()
+    seed = engine.store.get_meta("seed", "0") or "0"
+    for person in engine.store.list_people():
+        if person.id == event.owner_id:
+            continue
+        if person.name.lower() in low or person.id.lower() in low:
+            delay = random.Random(f"{seed}:{person.id}:{now}").randint(1, 60)
+            engine.schedule(SlackReadEvent(
+                owner_id=person.id, initiator_id=event.owner_id,
+                start_tick=now + delay,
+                payload={"channel_id": event.payload.get("channel_id", ""),
+                         "message_id": event.payload.get("message_id", ""),
+                         "body": body},
+            ))
 
-    A *directive* message — one containing the phrase "pick up" — additionally
-    bumps every issue key it names to priority 0, the "explicitly asked by the
-    PM" level that even a freestyle persona works first (see :func:`_next_issue`)
+
+def _on_slack_read(engine: "Engine", event: "Event") -> None:
+    """Reading a message that names you: close your parked work, take directives.
+
+    The reader closes their own finished-but-unclosed (``in_review``) issues. A
+    *directive* body — one containing the phrase "pick up" — additionally bumps
+    every issue key it names to priority 0, the "explicitly asked by the PM"
+    level that even a freestyle persona works first (see :func:`_next_issue`)
     and that preempts the assignee's in-progress ticket (see
     :meth:`WorkDriver._preempt_if_directed`). A mere mention of a key (a status
     highlight) steers nothing.
     """
-    body = event.payload.get("body", "").lower()
-    if not body:
-        return
     api = _jira(engine)
-    for person in engine.store.list_people():
-        if person.name.lower() in body or person.id.lower() in body:
-            _close_in_review(api, person.id, trigger="slack")
+    _close_in_review(api, event.owner_id, trigger="slack")
+    body = event.payload.get("body", "").lower()
     if "pick up" in body:
         for key in re.findall(r"\b[a-z]+-\d+\b", body):
             issue = api.repo.get_issue(key.upper())
@@ -374,8 +433,8 @@ def _on_slack_send(engine: "Engine", event: "Event") -> None:
 REACTIONS: dict[EventType, Reaction] = {
     EventType.EMAIL_SEND: _noop,      # TODO: recipient may reply on the slower email cadence
     EventType.EMAIL_READ: _noop,      # awareness only — nothing to react to
-    EventType.SLACK_SEND: _on_slack_send,  # naming a person closes their in_review work
-    EventType.SLACK_READ: _noop,      # awareness only — nothing to react to
+    EventType.SLACK_SEND: _on_slack_send,  # named people read the message within the hour
+    EventType.SLACK_READ: _on_slack_read,  # reader closes in_review work, takes directives
     EventType.JIRA_TICKET: _on_jira_ticket_done,  # finish → pick up next ready assigned ticket
     EventType.MEETING: _on_meeting_done,  # standup end → attendees close in_review work
     EventType.OOO: _noop,             # TODO: on return, the person picks up their backlog

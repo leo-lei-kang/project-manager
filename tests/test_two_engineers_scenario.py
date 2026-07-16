@@ -17,8 +17,8 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.persona import FREE_SPIRIT, PERFECT
 from pm.scenarios import runner
-from pm.scenarios import test_two_engineers_mixed as scenario
-from pm.scenarios.test_two_engineers_mixed import (
+from pm.scenarios import two_engineers as scenario
+from pm.scenarios.two_engineers import (
     DEPS,
     PROJECT_ID,
     TASKS,

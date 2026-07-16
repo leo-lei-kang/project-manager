@@ -51,8 +51,10 @@ def _member(pid: str, persona: Persona = PERFECT, discipline: str = "backend") -
 def _drive(env: Env, driver: WorkDriver, *, closes: bool = False) -> None:
     """Kickoff sweep + completion-driven week (optionally with the close reactions)."""
     env.engine.activities.on_activity_done = driver.on_activity_done
+    if closes:
+        env.engine.on_event_done = driver.on_event_done
     driver.sweep(env.engine)
-    Simulation(env).run(on_tick=driver.on_tick if closes else None)
+    Simulation(env).run()
 
 
 def test_persona_round_trips_through_seed_cast(env: Env) -> None:
@@ -92,36 +94,31 @@ def test_standup_closes_in_review_work(env: Env) -> None:
 
 
 def test_slack_mention_closes_in_review_work(env: Env) -> None:
-    # Item 1: a Slack message naming the person closes their pending work; an
-    # unrelated message does not.
-    seed_cast(env.store, cast=[_member("alice", HEADS_DOWN)])
+    # Item 1: a Slack message naming the person closes their pending work once
+    # they read it (within the hour); an unrelated message does not.
+    seed_cast(env.store, cast=[_member("alice", HEADS_DOWN), _member("bob")])
     api = _api(env)
     env.store.db.execute("INSERT INTO channel (id, name, kind) VALUES ('eng','eng','channel')")
     named = api.create_issue("checkout", "task", "API", estimate_minutes=5,
                              assignee="alice", actor="alice")
     env.engine.schedule(SlackSendEvent(
-        owner_id="alice", start_tick=20,
+        owner_id="bob", start_tick=20,
         payload={"message_id": "m0", "channel_id": "eng", "body": "unrelated status ping"},
     ))
     env.engine.schedule(SlackSendEvent(
-        owner_id="alice", start_tick=40,
+        owner_id="bob", start_tick=40,
         payload={"message_id": "m1", "channel_id": "eng", "body": "hey alice can you close it?"},
     ))
 
     driver = WorkDriver(api, ["alice"], "checkout")
     env.engine.activities.on_activity_done = driver.on_activity_done
+    env.engine.on_event_done = driver.on_event_done
     driver.sweep(env.engine)
-    hook = driver.on_tick
-    sim = Simulation(env)
-    # Drive tick-by-tick (mirroring Simulation.run) so we can observe the state
-    # after the unrelated ping but before the mention.
-    while sim.clock.now() < 30:
-        hook(sim)
-        sim.step()
+    # Advance in two halves so we can observe the state after the unrelated
+    # ping but before the mention; the closes ride the engine's event hook.
+    env.engine.advance(30)
     assert api.get_issue(named.id).status == "in_review"  # unrelated ping didn't close it
-    while not sim.is_over():
-        hook(sim)
-        sim.step()
+    env.engine.advance_to(2400)
     assert api.get_issue(named.id).status == "done"  # the mention closed it
 
 
