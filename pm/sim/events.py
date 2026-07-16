@@ -233,9 +233,12 @@ class SlackReadEvent(Event):
 
     Scheduled by the slack.send reaction for each named person, a seeded-random
     1–60 minutes after the send (see :mod:`pm.sim.npc`); the read reaction then
-    closes the reader's ``in_review`` work and takes "pick up" directives. The
-    read itself is the recorded outcome (event row + log); there is no separate
-    world table for it, so both hooks are no-ops beyond the base logging.
+    closes the reader's ``in_review`` work and takes "pick up" directives. A read
+    that would land inside the reader's meeting or OOO calendar block yields past
+    it at schedule time (see :func:`pm.sim.calendar.reserve`) — nobody reads
+    Slack mid-meeting. The read itself is the recorded outcome (event row +
+    log); there is no separate world table for it, so both hooks are no-ops
+    beyond the base logging.
     """
 
     type = EventType.SLACK_READ

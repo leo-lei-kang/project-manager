@@ -2,9 +2,9 @@
 
 Alice alone carries the whole "Meeting Transcripts v1" push
 (``pm/transcript/project_single_engineer.md``), split into two epics: a
-high-priority one with nine 3-5 h project tasks totalling 1920 minutes (32 h)
+high-priority one with eight 3-5 h project tasks totalling 1740 minutes (29 h)
 — shippable in full even around the daily 30-minute standups (37.5 h of
-working time) — and a low-priority backlog epic with five tickets (20 h) the
+working time) — and a low-priority backlog epic with six tickets (23 h) the
 week cannot also absorb. The board holds 52 h against 37.5 h of capacity, so
 triage is the game.
 
@@ -13,7 +13,7 @@ random, ignoring priority — and no one intervenes. Backlog work displaces
 project tasks, so part of the project is left over at Fri 17:00: the baseline a
 steering PM would have to rescue. Re-seed with
 ``build(member_persona=PERFECT)`` to watch priority-ordered work ship all
-nine project tasks and still close one backlog ticket.
+eight project tasks and still close two backlog tickets.
 """
 
 from __future__ import annotations
@@ -41,21 +41,23 @@ MEMBERS = [c.id for c in CAST]
 
 HIGH_PRIORITY, LOW_PRIORITY = 1, 3
 
-# The project: the nine tasks from project_single_engineer.md (3-5 h each),
-# 1920 min = 32 h. Every one must ship — they are the high-priority set, and
-# they fit the week even with the daily standups (40 h - 2.5 h of meetings).
+# The project: the eight tasks from project_single_engineer.md (3-5 h each),
+# 1740 min = 29 h. Every one must ship — they are the high-priority set, and
+# they fit the week easily even with the daily standups (40 h - 2.5 h of meetings).
 HIGH: list[tuple[str, int]] = [
     (t["title"], int(t["estimate_minutes"]))
     for t in project_tasks(board="single_engineer")
 ]
 
-# Backlog: nice-to-have, off-project. 5 x 240 min = 20 h; total board 60 h.
+# Backlog: nice-to-have, off-project (export/share moved down from the project
+# scope). 5 x 240 + 180 = 1380 min = 23 h; total board 52 h.
 LOW: list[tuple[str, int]] = [
     ("Refactor ingest retry helpers", 240),
     ("Add tracing spans to search path", 240),
     ("Migrate lint config to shared preset", 240),
     ("Backfill API docs for v1 endpoints", 240),
     ("Prototype websocket compression", 240),
+    ("Transcript export and share links", 180),
 ]
 
 

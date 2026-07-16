@@ -24,8 +24,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # free (no-cost) models.
 MODELS = [
     # one per vendor (paid) — each vendor's flagship / top tier
-    "openai/gpt-5.5-pro",
     "anthropic/claude-opus-4.8",
+    "openai/gpt-5.5-pro",
     "google/gemini-3.1-pro-preview",
     "x-ai/grok-4.5",
     "deepseek/deepseek-v4-pro",
@@ -39,8 +39,10 @@ MODELS = [
 _SYSTEM = (
     "You are a project manager for a small SaaS team. Use the available tools to "
     "read the Jira board, read and send Slack messages, and read the calendar, then "
-    "keep the project moving. When you are done, reply with a short summary and no "
-    "tool call."
+    "keep the project moving. Coworkers only notice Slack messages that mention "
+    "their name — when you ask someone to do something, address them by name in "
+    "the message body (e.g. \"alice, please pick up MT-3\"). When you are done, "
+    "reply with a short summary and no tool call."
 )
 
 
@@ -130,7 +132,8 @@ def _tool(name: str, description: str, properties: dict[str, Any], required: lis
 
 # The AgentTools capabilities as OpenAI function schemas (see pm/agent/tools.py).
 _AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
-    _tool("send_slack", "Post a message to a Slack channel.",
+    _tool("send_slack", "Post a message to a Slack channel. People only read "
+          "messages that name them — address the recipient by name in the body.",
           {"channel_id": {"type": "string"}, "body": {"type": "string"}},
           ["channel_id", "body"]),
     _tool("read_slack", "Read the messages in a Slack channel, oldest first. Pass "

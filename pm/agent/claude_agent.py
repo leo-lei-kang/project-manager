@@ -57,14 +57,14 @@ class ClaudeAgent:
         messages: list[dict[str, Any]] = [{"role": "user", "content": goal}]
         sent_from = 0  # messages[sent_from:] = what this round-trip newly sent
         for step in range(self.max_steps):
+            new_input = messages[sent_from:]
             self._log({"kind": "llm_request", "step": step, "model": self.model,
-                       "messages": len(messages)})
+                       "messages": len(messages), "input": new_input})
             resp = await self.client.messages.create(
                 model=self.model, max_tokens=16000,
                 thinking={"type": "adaptive"},
                 system=self.system, tools=tools, messages=messages,
             )
-            new_input = messages[sent_from:]
             # Append the full content (thinking blocks included, unchanged) —
             # dumped to plain dicts so the log mirror stays JSON-safe.
             messages.append({"role": "assistant",
@@ -77,7 +77,6 @@ class ClaudeAgent:
                 "input_tokens": resp.usage.input_tokens,
                 "output_tokens": resp.usage.output_tokens,
                 "tool_calls": [c.name for c in calls],
-                "input": new_input,
                 "output": {"content": text or None,
                            "tool_calls": [{"name": c.name, "args": c.input}
                                           for c in calls]},

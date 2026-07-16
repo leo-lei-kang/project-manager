@@ -8,12 +8,12 @@ is the observed `pm eval` result (seed 42).
 
 - `single_engineer` — alice alone carries the whole Meeting
   Transcripts v1 push (`pm/transcript/project_single_engineer.md`), split into
-  two epics: a high-priority one with nine 3-5 h project tasks (32 h — it
+  two epics: a high-priority one with eight 3-5 h project tasks (29 h — it
   *can* ship in full around the daily 30-min standups, 37.5 h of working time)
-  and a low-priority backlog epic with five tickets (20 h) the week cannot
+  and a low-priority backlog epic with six tickets (23 h) the week cannot
   also absorb. The verdict
-  is PROJECT NOT DONE by design (55 h board); the success criterion is "the
-  whole 35-h project ships", with whatever is left listed under the eval's
+  is PROJECT NOT DONE by design (52 h board); the success criterion is "the
+  whole 29-h project ships", with whatever is left listed under the eval's
   Remaining section. Personas default to `free_spirit` (backlog picks displace
   project work); `build(member_persona=PERFECT)` ships the whole project at
   exactly Fri 17:00.

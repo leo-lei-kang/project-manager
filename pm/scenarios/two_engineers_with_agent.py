@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 SCENARIO = "two_engineers_with_agent"
 CHANNEL = "eng"
 REVIEW_PERIOD = 240  # review every four sim-hours (60 min * 4)
-DEFAULT_MODEL = "openai/gpt-5.5-pro"
+DEFAULT_MODEL = "anthropic/claude-opus-4.8"
 
 PROMPT = (
     f"You are the PM for project '{PROJECT_ID}'. Review the Jira board with "

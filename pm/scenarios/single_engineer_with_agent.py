@@ -1,7 +1,7 @@
 """The "Single Engineer with Agent" scenario — a free-spirit engineer + an LLM PM.
 
 Same overloaded solo board as :mod:`pm.scenarios.single_engineer`
-(the nine 32-h transcripts project tasks plus 20 h of backlog), with alice working
+(the eight 29-h transcripts project tasks plus 23 h of backlog), with alice working
 as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
 priority — so backlog work displaces project tasks and the high-priority project
 is at risk of being left over.
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 SCENARIO = "single_engineer_with_agent"
 CHANNEL = "eng"
 REVIEW_PERIOD = 240  # review every four sim-hours (60 min * 4)
-DEFAULT_MODEL = "openai/gpt-5.5-pro"
+DEFAULT_MODEL = "anthropic/claude-opus-4.8"
 
 PROMPT = (
     f"You are the PM for project '{PROJECT_ID}'. Review the Jira board with "

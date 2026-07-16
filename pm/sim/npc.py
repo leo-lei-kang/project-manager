@@ -384,8 +384,10 @@ def _on_slack_send(engine: "Engine", event: "Event") -> None:
     ``id`` in the message body — deterministic, no model in the loop. Each named
     person (never the sender) gets a :class:`~pm.sim.events.SlackReadEvent` at a
     seeded-random 1–60 minutes later; the message's *effects* fire when they read
-    it (see :func:`_on_slack_read`). A read scheduled past week end never fires —
-    a directive sent in the last hour can go unread.
+    it (see :func:`_on_slack_read`). A read that would land during a meeting or
+    OOO yields past it at schedule time (see :func:`pm.sim.calendar.reserve`). A
+    read scheduled past week end never fires — a directive sent in the last hour
+    can go unread.
     """
     body = event.payload.get("body", "")
     low = body.lower()

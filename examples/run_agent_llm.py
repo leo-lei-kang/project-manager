@@ -16,7 +16,7 @@ PM feels slow (it blocks on 2-3 such round-trips per review, ~30 reviews a
 week) without simulating the week around it. MODEL overrides the scenario's
 default.
 
-MODEL defaults to the OpenAI flagship from ``pm.agent.openrouter_agent.MODELS``;
+MODEL defaults to the Anthropic flagship from ``pm.agent.openrouter_agent.MODELS``;
 PROMPT defaults to "who has the most Jira tickets?". Needs ``OPENROUTER_API_KEY``
 in ``.env`` (see ``.env.example``) — free models cost nothing, paid ones bill
 your OpenRouter account.
@@ -47,7 +47,7 @@ from pm.npc.cast import seed_cast
 from pm.world.models import Project
 
 _RUN_ID = "run-agent-llm"
-_DEFAULT_MODEL = "openai/gpt-5.5-pro"
+_DEFAULT_MODEL = "anthropic/claude-opus-4.8"
 _DEFAULT_PROMPT = (
     "Which coworker is assigned the most Jira tickets on the 'checkout' board? "
     "Reply with just their first name."

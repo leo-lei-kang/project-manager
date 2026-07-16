@@ -9,7 +9,13 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST, MEMBERS, seed_cast
 from pm.sim.npc import REACTIONS, WorkDriver, available_work_for, react, react_on_tick
-from pm.sim.events import EventType, JiraTicketEvent, SlackReadEvent, SlackSendEvent
+from pm.sim.events import (
+    EventType,
+    JiraTicketEvent,
+    MeetingEvent,
+    SlackReadEvent,
+    SlackSendEvent,
+)
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
 
@@ -237,6 +243,34 @@ def test_directive_read_bumps_and_preempts_end_to_end(api: JiraApi, env: Env) ->
     done_urgent, done_current = api.get_issue(urgent.id), api.get_issue(current.id)
     assert done_urgent.status == "done" and done_current.status == "done"
     assert done_urgent.updated_tick < done_current.updated_tick  # urgent finished first
+
+
+def test_slack_read_defers_until_the_meeting_ends(api: JiraApi, env: Env) -> None:
+    # A read that would land mid-meeting yields past it at schedule time: alice
+    # reads right after the meeting ends, and the directive's preempt fires then.
+    current = api.create_issue("checkout", "task", "Current", estimate_minutes=200,
+                               assignee="alice", actor="erin")
+    urgent = api.create_issue("checkout", "task", "Urgent", estimate_minutes=30,
+                              assignee="alice", actor="erin")
+    driver = WorkDriver(api, ["alice"], "checkout")
+    env.engine.activities.on_activity_done = driver.on_activity_done
+    env.engine.on_event_done = driver.on_event_done
+    driver.sweep(env.engine)                     # kickoff: picks Current
+    env.engine.schedule(MeetingEvent(
+        owner_id="erin", start_tick=5, duration=30,           # occupies ticks 5-35
+        payload={"meeting_id": "m1", "kind": "adhoc", "attendees": ["alice"]}))
+    env.engine.schedule(SlackReadEvent(
+        owner_id="alice", start_tick=10,
+        payload={"message_id": "m", "channel_id": "eng",
+                 "body": f"alice please pick up {urgent.id}"}))
+
+    env.engine.advance(45)
+
+    read = env.store.db.query_one("SELECT * FROM event WHERE type = 'slack.read'")
+    assert read["start_tick"] == 35              # rescheduled past the meeting, once
+    assert read["done_tick"] == 35
+    started = env.engine.activities.started_for("alice")
+    assert started is not None and started.params["issue_key"] == urgent.id
 
 
 def test_completion_sweep_redispatches_unblocked_partner(api: JiraApi, env: Env) -> None:

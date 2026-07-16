@@ -20,5 +20,4 @@ flag; the demo target is a full meeting transcribed end-to-end.
 | NOTES-5 | Search across a meeting's transcript | alice | todo | 180 |
 | NOTES-6 | Speaker diarization and label cleanup | alice | todo | 180 |
 | NOTES-7 | Feature flag and demo environment wiring | alice | todo | 180 |
-| NOTES-8 | Transcript export and share links | alice | todo | 180 |
-| NOTES-9 | Design pass: transcript reading and search UX | alice | todo | 180 |
+| NOTES-8 | Design pass: transcript reading and search UX | alice | todo | 180 |

@@ -11,8 +11,10 @@ is reserved, conflicts are resolved by **priority (by event type)**:
     **yields** — it is pushed to start after the blocking window.
 
 Instantaneous events (emails, slack) are not in
-``EVENT_PRIORITY`` and reserve nothing, so they are never blocked. All resolution
-happens at reserve time (called from ``Engine.schedule``), so the engine simply runs
+``EVENT_PRIORITY`` and reserve nothing. They are never blocked, with one
+exception: a ``slack.read`` that would land inside its reader's meeting/OOO
+block yields past it (nobody reads Slack mid-meeting). All resolution happens at
+reserve time (called from ``Engine.schedule``), so the engine simply runs
 events on their resolved schedule — there is no runtime preemption.
 """
 
@@ -49,6 +51,21 @@ def reserve(store: "Store", event: "Event", now: int) -> None:
     May shift ``event.start_tick`` (if it must yield) and may reschedule other events
     (if it bumps them). Assumes ``event`` is already persisted (has an ``id``).
     """
+    if event.type is EventType.SLACK_READ:
+        # Nobody reads Slack mid-meeting: a read yields past the reader's
+        # full-attention blocks (meeting/OOO) at schedule time, but is still
+        # instantaneous and lays no blocks of its own.
+        while True:
+            blockers = [
+                o for o in store.occupancy_overlaps(
+                    {event.owner_id}, event.start_tick, event.start_tick + 1)
+                if o["priority"] >= EVENT_PRIORITY[EventType.MEETING]
+            ]
+            if not blockers:
+                break
+            event.start_tick = max(o["end_tick"] for o in blockers)
+        store.reschedule_event(event)
+        return
     if event.type not in OCCUPYING_TYPES:
         return  # instantaneous / non-occupying: no calendar footprint
     prio = EVENT_PRIORITY[event.type]
