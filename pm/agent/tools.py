@@ -20,7 +20,7 @@ from typing import Any
 
 from pm.env.environment import Env
 from pm.exceptions import ToolError
-from pm.jira.api import JiraApi
+from pm.jira.api import ALLOWED_TRANSITIONS, JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import AGENT
 from pm.sim.events import SlackSendEvent
@@ -98,6 +98,36 @@ class AgentTools:
             assignee=assignee, priority=priority, description=description,
             actor=self.actor)
         return issue.model_dump()
+
+    def update_jira_status(self, key: str, status: str) -> dict[str, Any]:
+        """Move an issue to ``status``, walking the legal workflow path
+        (e.g. ``todo -> in_progress -> done``) — a zero-cost board mutation.
+
+        Use it to make the board reflect reality (say, tickets filed from
+        meeting notes that are already underway or finished). Unreachable
+        targets (e.g. ``blocked``, which is derived) raise
+        :class:`~pm.exceptions.ToolError`.
+        """
+        current = self.jira.get_issue(key).status
+        # Shortest legal transition path via BFS over the workflow graph.
+        paths: dict[str, list[str]] = {current: []}
+        frontier = [current]
+        while frontier and status not in paths:
+            reached: list[str] = []
+            for state in frontier:
+                for nxt in sorted(ALLOWED_TRANSITIONS.get(state, set())):
+                    if nxt not in paths:
+                        paths[nxt] = paths[state] + [nxt]
+                        reached.append(nxt)
+            frontier = reached
+        if status not in paths:
+            raise ToolError(
+                f"cannot move {key} from {current!r} to {status!r}",
+                details={"key": key, "from": current, "to": status},
+            )
+        for step in paths[status]:
+            self.jira.transition_issue(key, step, actor=self.actor)
+        return self.jira.get_issue(key).model_dump()
 
     def read_jira_board(self, project_id: str) -> dict[str, Any]:
         """Return a dashboard view of a project's board (no sim-time cost).

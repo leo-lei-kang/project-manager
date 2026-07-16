@@ -37,6 +37,10 @@ def format_entry(e: LogEntry) -> str:
             detail += f"  pool[{' | '.join(_brief(t) for t in p['pool'])}]"
     else:
         detail = next((str(p[k]) for k in _DETAIL_KEYS if p.get(k)), "")
+        # Long free text (a Slack body, say) is capped; newlines flattened.
+        detail = " ".join(detail.split())
+        if len(detail) > 100:
+            detail = detail[:97] + "..."
     stamp = f"[{e.wall_time}] " if e.wall_time else ""
     return (f"{stamp}{format_tick(e.sim_tick):>10}  {e.actor:<8} "
             f"{e.kind:<24} {detail}").rstrip()

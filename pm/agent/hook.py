@@ -32,7 +32,7 @@ from pm.agent.openrouter_agent import (
 from pm.agent.tools import AgentTools
 from pm.env.environment import Env
 from pm.exceptions import ConfigurationError
-from pm.sim.events import SlackSendEvent
+from pm.sim.events import EventType, SlackSendEvent
 
 if TYPE_CHECKING:
     from pm.sim.simulation import Simulation
@@ -82,6 +82,10 @@ def llm_review_hook(
 ) -> Callable[["Simulation"], None]:
     """Build a hook that runs the LLM agent every ``period`` ticks, logging as it goes.
 
+    A meeting ending also triggers an immediate review — its transcript becomes
+    available at that moment, so the agent reads it right away instead of
+    waiting for the next boundary.
+
     ``client`` is any OpenAI-compatible async client (tests inject a fake);
     ``None`` builds the OpenRouter client from ``.env`` on first use. Every entry
     lands twice: in the run's ``agent-<model>.jsonl`` (eval/viz source) and,
@@ -99,7 +103,10 @@ def llm_review_hook(
 
     def hook(sim: "Simulation") -> None:
         nonlocal client
-        if sim.clock.now() % period != 0:
+        now = sim.clock.now()
+        meeting_ended = any(
+            e.type is EventType.MEETING for e in sim.store.events_done_at(now))
+        if now % period != 0 and not meeting_ended:
             return
         if client is None:
             client = _default_client()

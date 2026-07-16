@@ -44,10 +44,14 @@ PROMPT = (
     f"You are the PM for project '{PROJECT_ID}'. Review the Jira board with "
     "read_jira_board AND the meeting transcripts with read_transcripts — on this "
     "project the board may not tell the whole story; the notes track tasks the "
-    f"board never sees. If the record needs surfacing, post ONE short '{CHANNEL}' "
-    "Slack message summarizing the project's real status (who owns what, what is "
-    "done or at risk); if nothing new has happened, post nothing. Then reply with "
-    "a one-line summary and no tool call."
+    "board never sees. If the board does not match the notes, fix the board "
+    "yourself: file the missing work with create_jira_ticket (title, assignee, "
+    "estimate from the notes) and set each ticket's real status with "
+    "update_jira_status — never re-file a ticket that already exists. If the "
+    f"record also needs surfacing, post at most ONE short '{CHANNEL}' Slack "
+    "message summarizing the real status (who owns what, what is done or at "
+    "risk); if nothing new has happened, post nothing. Then reply with a "
+    "one-line summary and no tool call."
 )
 
 # The five implementers + the pm agent (the Slack sender). MEMBERS drives the
