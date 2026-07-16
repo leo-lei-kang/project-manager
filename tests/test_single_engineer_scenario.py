@@ -1,9 +1,9 @@
-"""The Single Engineer scenario: 60 h of tickets in a 40-h week — triage matters.
+"""The Single Engineer scenario: the 40-h transcripts project + 20 h of backlog.
 
-All tasks are 300 minutes, so every run completes exactly eight of the twelve;
-the persona decides which eight. PERFECT ships all seven launch blockers; the
-FREE_SPIRIT provably leaves high-priority work over (deterministic per the run
-seed).
+The six project_single_engineer.md tasks (2400 min, priority 1) fill the week
+exactly; the board also holds five 240-minute backlog tickets it cannot absorb.
+PERFECT ships the whole project and nothing else; the FREE_SPIRIT lets backlog
+picks displace project work (deterministic per the run seed).
 """
 
 from __future__ import annotations
@@ -12,24 +12,23 @@ from pm.db.store import Store
 from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.persona import PERFECT, FREE_SPIRIT
+from pm.scenarios import runner
+from pm.scenarios import test_single_engineer as scenario
 from pm.scenarios.test_single_engineer import (
     HIGH,
     HIGH_PRIORITY,
     LOW,
-    MEMBERS,
     PROJECT_ID,
     build,
 )
 from pm.sim.clock import WEEK_END_TICK
-from pm.sim.simulation import Simulation
 
 
 def _run(tmp_path, run_id, **kwargs):
     env = build(run_id=run_id, root=tmp_path, **kwargs)
     api = JiraApi(JiraRepository(env.store), env.engine)
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, MEMBERS, PROJECT_ID))
+    runner.drive(env, scenario)
     return env, api
 
 
@@ -39,33 +38,34 @@ def test_seed_db_shape(tmp_path):
     seed = Store.open(str(Env.seed_path("solo-seed", tmp_path)))
 
     tasks = seed.db.query_all("SELECT * FROM issue WHERE issue_type = 'task'")
-    assert len(tasks) == len(HIGH) + len(LOW) == 12
+    assert len(tasks) == len(HIGH) + len(LOW) == 11
     assert all(t["assignee_id"] == "alice" for t in tasks)
-    # the board overloads the 2400-tick week; the blockers alone fit within it
+    # the board overloads the 2400-tick week; the project alone fills it exactly
     assert sum(t["estimate_minutes"] for t in tasks) == 3600
     high = [t for t in tasks if t["priority"] == HIGH_PRIORITY]
-    assert len(high) == 7 and sum(t["estimate_minutes"] for t in high) == 2100
+    assert len(high) == 6 and sum(t["estimate_minutes"] for t in high) == 2400
     seed.close()
 
 
-def test_perfect_ships_all_high_priority(tmp_path):
+def test_perfect_ships_the_project(tmp_path):
     env, api = _run(tmp_path, "solo-perfect", member_persona=PERFECT)
 
     assert env.clock.now() == WEEK_END_TICK
     tasks = api.search(project_id=PROJECT_ID, issue_type="task")
     high = [t for t in tasks if t.priority == HIGH_PRIORITY]
-    assert all(t.status == "done" for t in high)  # every launch blocker shipped
-    # 8 x 300 min fill the 2400-tick week exactly: the 7 blockers + 1 backlog item
-    assert sum(1 for t in tasks if t.status == "done") == 8
+    assert all(t.status == "done" for t in high)  # the whole project shipped
+    # the six project tasks fill the 2400-tick week exactly: no backlog fits
+    assert sum(1 for t in tasks if t.status == "done") == 6
+    assert max(t.updated_tick for t in high) == WEEK_END_TICK  # zero slack
     env.close()
 
 
-def test_free_spirit_leaves_high_priority_over(tmp_path):
+def test_free_spirit_leaves_project_work_over(tmp_path):
     env, api = _run(tmp_path, "solo-chaos", member_persona=FREE_SPIRIT)
 
     assert env.clock.now() == WEEK_END_TICK
     tasks = api.search(project_id=PROJECT_ID, issue_type="task")
     high_left = [t for t in tasks if t.priority == HIGH_PRIORITY and t.status != "done"]
-    assert high_left  # random triage strands launch blockers
-    assert sum(1 for t in tasks if t.status == "done") == 8  # worked all week regardless
+    assert len(high_left) == 2  # backlog picks displaced project tasks
+    assert sum(1 for t in tasks if t.status == "done") == 6  # worked all week regardless
     env.close()

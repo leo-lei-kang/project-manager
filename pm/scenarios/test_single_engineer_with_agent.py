@@ -1,37 +1,38 @@
-"""The "Single Engineer with Agent" scenario — a free-spirit engineer + a PM agent.
+"""The "Single Engineer with Agent" scenario — a free-spirit engineer + an LLM PM.
 
-Same overloaded solo board as :mod:`pm.scenarios.test_single_engineer` (12 tasks,
-7 high-priority launch blockers + 5 backlog, 60 h in a 40-h week), but here alice
-works as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
-priority — so the launch blockers are at risk of being left over.
+Same overloaded solo board as :mod:`pm.scenarios.test_single_engineer` (the six
+40-h transcripts project tasks plus 20 h of backlog), but here alice works as a
+:data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
+priority — so backlog work displaces project tasks and the high-priority project
+is at risk of being left over.
 
-The agent-under-test (``pm``) acts *during* the run: every four sim-hours it reviews
-the board (:meth:`~pm.agent.tools.AgentTools.read_jira_board`) and, when high-priority
-tickets are still open, posts a Slack message to ``#eng`` highlighting them — but only
-when there is something new to say (the open set is non-empty and has changed since its
-last post). It raises visibility; it does not reorder the engineer's random picking.
+The agent-under-test (``pm``) is an **LLM** acting *during* the run: every four
+sim-hours the review hook (:func:`pm.agent.hook.llm_review_hook`) hands the model
+the agent tools; it reads the board and may post one short ``#eng`` message using
+its two levers (naming a person closes their in-review work; "please pick up <KEY>"
+bumps that ticket to top priority). Every model round-trip and tool call is logged
+with token usage to ``runs/<run_id>/agent.jsonl``.
 
 ``build(member_persona=...)`` seeds alice with the given persona (default:
-:data:`~pm.npc.persona.FREE_SPIRIT`). ``agent_review_hook(env)`` builds the PM's
-per-tick review hook; compose it with a pickup hook to run the full interaction (the
-``pm sim`` driver does this automatically).
+:data:`~pm.npc.persona.FREE_SPIRIT`). ``agent_review_hook(env)`` builds the LLM
+review hook — under ``pm sim`` it needs ``OPENROUTER_API_KEY`` in ``.env``
+(model from ``OPENROUTER_MODEL``, default :data:`DEFAULT_MODEL`); tests inject a
+fake ``client``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from pm.agent.tools import AgentTools
+from pm.agent.hook import llm_review_hook
 from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import FREE_SPIRIT, Persona
-from pm.scenarios.test_single_engineer import HIGH_PRIORITY, PROJECT_ID, _seed_board
-from pm.sim.events import SlackSendEvent
+from pm.scenarios.test_single_engineer import PROJECT_ID, _seed_board
 
 if TYPE_CHECKING:
     from pm.sim.simulation import Simulation
@@ -39,6 +40,17 @@ if TYPE_CHECKING:
 SCENARIO = "test_single_engineer_with_agent"
 CHANNEL = "eng"
 REVIEW_PERIOD = 240  # review every four sim-hours (60 min * 4)
+DEFAULT_MODEL = "openai/gpt-5.5-pro"
+
+PROMPT = (
+    f"You are the PM for project '{PROJECT_ID}'. Review the Jira board with "
+    f"read_jira_board and the '{CHANNEL}' Slack channel. You have two levers, both "
+    f"via one Slack message to '{CHANNEL}': naming a person (e.g. alice) closes "
+    "their in-review work, and the exact phrase 'please pick up <TICKET-KEY>' makes "
+    "that ticket their top priority. If a high-priority ticket is open and not "
+    "being worked next, post ONE short message using a lever; if nothing needs "
+    "steering, post nothing. Then reply with a one-line summary and no tool call."
+)
 
 # alice (the implementer) + the pm agent (the Slack sender). MEMBERS drives the
 # pickup hook; the agent has works=False so the pickup hook skips it.
@@ -46,38 +58,22 @@ CAST = [c for c in _FULL_CAST if c.id in ("alice", "pm")]
 MEMBERS = [c.id for c in CAST if c.kind == "member"]
 
 
-def agent_review_hook(env: Env) -> Callable[["Simulation"], None]:
-    """Build the PM's review hook: every ``REVIEW_PERIOD`` ticks, highlight open blockers.
+def agent_review_hook(
+    env: Env, *, client: Any = None, model: str | None = None,
+) -> Callable[["Simulation"], None]:
+    """Build the LLM PM's review hook: every ``REVIEW_PERIOD`` ticks, one agent loop.
 
-    Reads the board through the agent's own tool and posts a Slack highlight only when
-    it is needed — high-priority tickets are still open *and* the open set changed since
-    the last post (so an unchanged board is not re-nagged every four hours). The post is
-    scheduled as a :class:`~pm.sim.events.SlackSendEvent` (clock-safe) rather than via
-    ``AgentTools.send_slack``, which would advance the clock mid-loop.
+    ``client``/``model`` default to the OpenRouter client from ``.env`` and
+    ``OPENROUTER_MODEL`` (falling back to ``DEFAULT_MODEL``); tests pass a fake
+    client. Activity lands in ``runs/<run_id>/agent.jsonl``.
     """
-    tools = AgentTools(env)  # actor defaults to the pm agent
-    last_posted: set[str] = set()
-
-    def hook(sim: "Simulation") -> None:
-        nonlocal last_posted
-        now = sim.clock.now()
-        if now % REVIEW_PERIOD != 0:
-            return
-        board = tools.read_jira_board(PROJECT_ID)
-        open_high = {
-            i["id"] for i in board["issues"]
-            if i["priority"] == HIGH_PRIORITY and i["status"] != "done"
-        }
-        if not open_high or open_high == last_posted:
-            return  # nothing new to highlight
-        last_posted = open_high
-        body = "High-priority still open: " + ", ".join(sorted(open_high)) + " — please prioritize."
-        sim.schedule(SlackSendEvent(
-            owner_id="pm", start_tick=now,
-            payload={"message_id": f"pm-highlight-{now}", "channel_id": CHANNEL, "body": body},
-        ))
-
-    return hook
+    return llm_review_hook(
+        env,
+        model=model or os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL),
+        prompt=PROMPT,
+        client=client,
+        period=REVIEW_PERIOD,
+    )
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
@@ -95,4 +91,4 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
 if __name__ == "__main__":
     build()
     print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (a free-spirit engineer "
-          "while the pm agent reviews the board and highlights high-priority tickets).")
+          "while the LLM pm agent reviews the board every four sim-hours).")

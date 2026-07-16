@@ -1,21 +1,21 @@
-"""NPC behavior — scheduling coworker work on the Jira board.
+"""NPC behavior — completion-driven scheduling of coworker work.
 
-Coworker behaviour is carried by the durative event types in :mod:`pm.sim.events`
-(each applies its own effect on start/done); this module's job is *scheduling* —
-deciding, from the current board state, which work to enqueue.
+Coworker work runs as ``jira_work`` **activities** (:mod:`pm.sim.activity`); this
+module's job is deciding, from the current board state, which work to enqueue.
 
-Two per-tick ``Simulation.run`` hooks give coworker NPCs agency over simulated
-time, differing only in how they pick an issue:
+:class:`WorkDriver` is the single dispatch path. The driver *sweeps* the roster —
+every member with nothing in flight picks their next issue per their persona —
+at exactly two kinds of moment:
 
-* :func:`dev_pickup_hook` — developers take the next ready issue in their
-  discipline (assigning it to themselves if needed). Managers/execs
-  (``works=False``) create and assign rather than implement, so they are skipped.
-* :func:`assignee_pickup_hook` — for a pre-assigned board, each coworker works the
-  next ready issue already assigned to them.
+* **kickoff** — one sweep at week start (the driver's owner calls
+  :meth:`WorkDriver.sweep` once before running the week), and
+* **completion** — the driver's :meth:`WorkDriver.on_activity_done` is installed
+  as the ``ActivityManager`` completion hook, so every finished activity (work,
+  meeting, …) re-sweeps. One member's completion can unblock anyone, so the sweep
+  covers the whole roster; the ``dispatched`` guard plus the in-flight check keep
+  each person to one issue at a time and make re-sweeps idempotent.
 
-Both then work the issue to completion via an
-:class:`~pm.sim.events.JiraTicketEvent` spanning its estimate; a ``dispatched``
-guard plus the in-flight check keep each person to one issue at a time.
+There is no per-tick polling: between completions, nothing dispatches.
 """
 
 from __future__ import annotations
@@ -29,9 +29,11 @@ from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.npc.cast import CastMember
 from pm.npc.persona import Persona, from_person
-from pm.sim.events import JiraTicketEvent, SlackSendEvent
+from pm.sim.events import SlackSendEvent
 
 if TYPE_CHECKING:
+    from pm.sim.activity import Activity
+    from pm.sim.engine import Engine
     from pm.sim.simulation import Simulation
 
 _TERMINAL = ("done", "cancelled")
@@ -123,114 +125,91 @@ def _next_issue(
     return unassigned[0] if unassigned else None
 
 
-def _dispatch_work(
-    sim: "Simulation", owner_id: str, issue: Issue, dispatched: set[str], persona: Persona,
-    status_channel: str | None = None,
-) -> None:
-    """Schedule the work event for ``issue`` and record it as dispatched.
+class WorkDriver:
+    """Completion-driven NPC work: one sweep at kickoff, then a sweep per completion.
 
-    ``auto_close`` carries the persona's board-update policy onto the event so it
-    can finish to ``done`` (on_finish) or hold in ``in_review`` (when_asked)
-    without the event reaching back into persona state.
+    ``members`` selects the pickup mode per entry: a plain person id works a
+    pre-assigned board (match on assignee only); a :class:`CastMember` is a
+    developer who also pulls unassigned ready work in their discipline
+    (self-assigning it), with ``works=False`` members skipped.
 
-    An ``announces_progress`` persona (see :data:`~pm.npc.persona.PERFECT`) also posts
-    a Slack status update to ``status_channel`` — raising the team's visibility. Skipped
-    when no channel is wired in.
+    ``status_channel`` (optional) is the Slack channel an ``announces_progress``
+    persona posts pickup updates to; omit it to disable those posts.
     """
-    now = sim.clock.now()
-    sim.schedule(
-        JiraTicketEvent(
-            owner_id=owner_id,
-            start_tick=now,
-            duration=issue.estimate_minutes,
-            payload={"issue_key": issue.id, "auto_close": persona.board_updates == "on_finish"},
-        )
-    )
-    if persona.announces_progress and status_channel is not None:
-        sim.schedule(
-            SlackSendEvent(
-                owner_id=owner_id,
-                start_tick=now,
-                payload={
-                    "message_id": f"progress-{owner_id}-{issue.id}-{now}",
-                    "channel_id": status_channel,
-                    "body": f"Starting {issue.id}: {issue.title}",
-                },
-            )
-        )
-    dispatched.add(issue.id)
 
+    def __init__(
+        self, api: JiraApi, members: list[CastMember] | list[str], project_id: str,
+        *, status_channel: str | None = None,
+    ) -> None:
+        self.api = api
+        self.members = members
+        self.project_id = project_id
+        self.status_channel = status_channel
+        self.dispatched: set[str] = set()
+        self.seed = api.repo.store.get_meta("seed", "0") or "0"
 
-def dev_pickup_hook(
-    api: JiraApi, roster: list[CastMember], project_id: str,
-    *, status_channel: str | None = None,
-) -> Callable[["Simulation"], None]:
-    """Build a per-tick hook: idle devs take & work the next issue in their discipline.
+    def on_activity_done(self, engine: "Engine", activity: "Activity") -> None:
+        """``ActivityManager`` completion hook: any completion may unblock anyone."""
+        self.sweep(engine)
 
-    ``status_channel`` (optional) is the Slack channel an ``announces_progress`` persona
-    posts pickup updates to; omit it to disable those posts.
-    """
-    dispatched: set[str] = set()
-    seed = api.repo.store.get_meta("seed", "0") or "0"
-
-    def hook(sim: "Simulation") -> None:
-        now = sim.clock.now()
-        for spec in roster:
-            if not spec.works:
+    def sweep(self, engine: "Engine") -> None:
+        """Dispatch the next issue for every member with nothing in flight."""
+        now = engine.clock.now()
+        for member in self.members:
+            is_dev = isinstance(member, CastMember)
+            if is_dev and not member.works:
                 continue
-            mine = api.search(project_id=project_id, assignee=spec.id)
-            if _in_flight(mine, dispatched):
+            pid = member.id if is_dev else member
+            mine = self.api.search(project_id=self.project_id, assignee=pid)
+            if _in_flight(mine, self.dispatched):
                 continue
-            persona = _persona_for(api.repo.store, spec.id)
+            persona = _persona_for(self.api.repo.store, pid)
             issue = _next_issue(
-                api, project_id, persona, mine, dispatched,
-                pid=spec.id, now=now, seed=seed, discipline=spec.discipline,
+                self.api, self.project_id, persona, mine, self.dispatched,
+                pid=pid, now=now, seed=self.seed,
+                discipline=member.discipline if is_dev else None,
             )
             if issue is None:
                 continue
-            if issue.assignee_id != spec.id:
-                api.assign_issue(issue.id, spec.id, actor=spec.id)
-            _dispatch_work(sim, spec.id, issue, dispatched, persona, status_channel)
+            if issue.assignee_id != pid:
+                self.api.assign_issue(issue.id, pid, actor=pid)
+            self._dispatch_issue(engine, pid, persona, issue, now)
 
-    return hook
+    def _dispatch_issue(
+        self, engine: "Engine", pid: str, persona: Persona, issue: Issue, now: int
+    ) -> None:
+        """Request the ``jira_work`` activity for ``issue`` and record the dispatch.
 
-
-def assignee_pickup_hook(
-    api: JiraApi, person_ids: list[str], project_id: str,
-    *, status_channel: str | None = None,
-) -> Callable[["Simulation"], None]:
-    """Build a per-tick hook for a pre-assigned board: each person works their own todo.
-
-    Matches on assignee (not discipline), so it drives boards whose issues are
-    assigned up front and carry no component; dependencies cascade as blockers finish.
-    ``status_channel`` (optional) is the Slack channel an ``announces_progress`` persona
-    posts pickup updates to; omit it to disable those posts.
-    """
-    dispatched: set[str] = set()
-    seed = api.repo.store.get_meta("seed", "0") or "0"
-
-    def hook(sim: "Simulation") -> None:
-        now = sim.clock.now()
-        for pid in person_ids:
-            mine = api.search(project_id=project_id, assignee=pid)
-            if _in_flight(mine, dispatched):
-                continue
-            persona = _persona_for(api.repo.store, pid)
-            issue = _next_issue(
-                api, project_id, persona, mine, dispatched, pid=pid, now=now, seed=seed,
+        ``auto_close`` carries the persona's board-update policy onto the activity
+        so it can finish to ``done`` (on_finish) or hold in ``in_review``
+        (when_asked) without the activity reaching back into persona state.
+        """
+        engine.store.log_event(now, actor=pid, kind="npc.pickup",
+                               payload={"issue_key": issue.id})
+        engine.activities.request(
+            "jira_work", [pid], issue.estimate_minutes, now,
+            params={"issue_key": issue.id, "auto_close": persona.board_updates == "on_finish"},
+        )
+        if persona.announces_progress and self.status_channel is not None:
+            engine.schedule(
+                SlackSendEvent(
+                    owner_id=pid,
+                    start_tick=now,
+                    payload={
+                        "message_id": f"progress-{pid}-{issue.id}-{now}",
+                        "channel_id": self.status_channel,
+                        "body": f"Starting {issue.id}: {issue.title}",
+                    },
+                )
             )
-            if issue is not None:
-                _dispatch_work(sim, pid, issue, dispatched, persona, status_channel)
-
-    return hook
+        self.dispatched.add(issue.id)
 
 
 def compose(*hooks: Callable[["Simulation"], None]) -> Callable[["Simulation"], None]:
     """Combine per-tick hooks into one (``Simulation.run`` takes a single ``on_tick``).
 
-    Runs the hooks in order each tick — pair a pickup hook with
-    :func:`pm.npc.reactions.close_reactions_on_tick` to drive dispatch and the
-    standup/Slack closes together.
+    Runs the hooks in order each tick — pair a PM review hook with
+    :func:`pm.npc.reactions.close_and_wake_on_tick` to drive the week.
     """
 
     def hook(sim: "Simulation") -> None:

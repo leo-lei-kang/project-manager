@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from pm.db.database import Database
@@ -48,6 +49,9 @@ _ENTITY_TABLES = (
 class Store:
     def __init__(self, db: Database) -> None:
         self.db = db
+        # Optional observer invoked with each LogEntry as it is appended —
+        # the live-streaming hook `pm sim` uses to narrate the run.
+        self.on_log: Callable[[LogEntry], None] | None = None
 
     @classmethod
     def open(cls, path: str, *, create: bool = False) -> "Store":
@@ -87,6 +91,9 @@ class Store:
             "INSERT INTO event_log (sim_tick, actor, kind, payload_json) VALUES (?, ?, ?, ?)",
             (sim_tick, actor, kind, json.dumps(payload or {})),
         )
+        if self.on_log is not None:
+            self.on_log(LogEntry(sim_tick=sim_tick, actor=actor, kind=kind,
+                                 payload=payload or {}))
 
     def read_log(self, limit: int | None = None) -> list[LogEntry]:
         sql = "SELECT * FROM event_log ORDER BY id"

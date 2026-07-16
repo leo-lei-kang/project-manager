@@ -257,7 +257,13 @@ class OOOEvent(Event):
     type = EventType.OOO
 
     def _on_start(self, engine: "Engine") -> None:
-        pass
+        # Bridge into the activity system: an ``ooo`` activity (priority 200, no
+        # effects) occupies the person so being out preempts any activity work.
+        if self.duration > 0:
+            engine.activities.request(
+                "ooo", [self.owner_id], self.duration, engine.clock.now(),
+                params={"event_id": self.id},
+            )
 
     def _on_done(self, engine: "Engine") -> None:
         pass
@@ -333,6 +339,15 @@ class MeetingEvent(Event):
         engine.store.log_event(
             now, actor=self.owner_id, kind="meeting.kind", payload={"kind": p.get("kind", "adhoc")}
         )
+        # Bridge into the activity system: an ``in_meeting`` activity (priority 100,
+        # no effects — this event stays the single writer) occupies the attendees so
+        # the meeting preempts any activity work they are in.
+        if self.duration > 0:
+            people = sorted(set(p.get("attendees", [])) | {self.owner_id})
+            engine.activities.request(
+                "in_meeting", people, self.duration, now,
+                params={"meeting_id": p["meeting_id"], "event_id": self.id},
+            )
 
     def _on_done(self, engine: "Engine") -> None:
         p = self.payload

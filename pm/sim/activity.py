@@ -9,10 +9,10 @@ self-contained:
   * a **duration** (`duration_needed`) that burns down while running, and
   * a **state**: ``backlogged → started → (interrupted ↔ started) → done`` (+ ``cancelled``).
 
-An activity does **not** reference a Task or Jira issue — it just runs and, on start/done,
-applies a kind-specific side effect (post a message, write a doc, produce a transcript, …).
-Kinds are a small **registry** of specs ``{name, priority, on_start, on_done}``; adding a
-kind is one registration. A generic ``params`` dict carries whatever an effect needs.
+On start/done an activity applies a kind-specific side effect (post a message, write a
+doc, transition the Jira issue named in its params, …). Kinds are a small **registry**
+of specs ``{name, priority, on_start, on_done}``; adding a kind is one registration. A
+generic ``params`` dict carries whatever an effect needs.
 
 ``ActivityManager`` enforces that **each NPC is in at most one ``started`` activity at a
 time**, across all attenders. Every activity is interruptible: a higher-priority activity
@@ -47,6 +47,7 @@ class Activity(BaseModel):
     remaining: int
     state: ActivityState = "backlogged"
     started_tick: int | None = None
+    done_tick: int | None = None
     created_tick: int = 0
     params: dict = Field(default_factory=dict)
 
@@ -108,10 +109,46 @@ def _slack_send_done(engine: "Engine", a: Activity) -> None:
     ))
 
 
+def _jira_api(engine: "Engine"):
+    # Function-local: pm.jira.api imports the engine, so a module-level import here
+    # would form an activity → jira.api → engine → activity cycle.
+    from pm.jira.api import JiraApi
+    from pm.jira.repository import JiraRepository
+
+    return JiraApi(JiraRepository(engine.store), engine)
+
+
+def _jira_work_start(engine: "Engine", a: Activity) -> None:
+    key = a.params.get("issue_key")
+    if key is None:
+        return  # untracked work: just burns time
+    api = _jira_api(engine)
+    issue = api.repo.get_issue(key)
+    # ``todo`` is the normal case; ``blocked`` too lets a dependency-blind persona
+    # work an issue that is not actually ready. Anything else (including a resume
+    # after an interruption, already in_progress) — skip.
+    if issue is None or issue.status not in ("todo", "blocked"):
+        return
+    api.transition_issue(key, "in_progress", actor=a.attendees[0])
+
+
 def _jira_work_done(engine: "Engine", a: Activity) -> None:
-    # Self-contained: records that work happened; it does NOT track a Jira issue.
     engine.store.log_event(engine.clock.now(), actor=a.attendees[0],
                            kind="ticket.worked", payload={"issue_key": a.params.get("issue_key")})
+    key = a.params.get("issue_key")
+    if key is None:
+        return
+    api = _jira_api(engine)
+    issue = api.repo.get_issue(key)
+    if issue is None or issue.status != "in_progress":
+        return
+    if issue.remaining_minutes > 0:
+        api.log_work(key, issue.remaining_minutes, actor=a.attendees[0])
+    # ``auto_close`` (default True) is the standard finish-to-done flow; a
+    # ``when_asked`` persona parks the work in ``in_review`` until a standup or a
+    # Slack mention closes it (see pm.npc.reactions).
+    to_status = "done" if a.params.get("auto_close", True) else "in_review"
+    api.transition_issue(key, to_status, actor=a.attendees[0])
 
 
 @dataclass(frozen=True)
@@ -124,7 +161,11 @@ class ActivityKind:
 
 ACTIVITY_KINDS: dict[str, ActivityKind] = {
     "meeting": ActivityKind("meeting", 100, on_start=_meeting_start, on_done=_meeting_done),
-    "jira_work": ActivityKind("jira_work", 40, on_done=_jira_work_done),
+    # Bridge kinds: requested by MeetingEvent/OOOEvent on start so calendar events
+    # preempt activity work. No effects — the event stays the single writer.
+    "in_meeting": ActivityKind("in_meeting", 100),
+    "ooo": ActivityKind("ooo", 200),
+    "jira_work": ActivityKind("jira_work", 40, on_start=_jira_work_start, on_done=_jira_work_done),
     "write_doc": ActivityKind("write_doc", 35, on_done=_write_doc_done),
     "review_doc": ActivityKind("review_doc", 30, on_done=_review_doc_done),
     "slack_send": ActivityKind("slack_send", 20, on_done=_slack_send_done),
@@ -144,6 +185,7 @@ _DDL = (
         state           TEXT    NOT NULL DEFAULT 'backlogged'
                         CHECK (state IN ('backlogged','started','interrupted','done','cancelled')),
         started_tick    INTEGER,
+        done_tick       INTEGER,
         created_tick    INTEGER NOT NULL DEFAULT 0,
         params_json     TEXT    NOT NULL DEFAULT '{}'
     )
@@ -162,6 +204,9 @@ class ActivityManager:
         self._engine = engine
         self._store = engine.store
         self._idle_filler = idle_filler
+        # Completion hook: fired once per finished activity from tick(), after the
+        # burn loop and before re-dispatch. The driver installs NPC behavior here.
+        self.on_activity_done: Callable[["Engine", Activity], None] | None = None
         for stmt in _DDL:
             self._store.db.execute(stmt)
 
@@ -169,18 +214,19 @@ class ActivityManager:
     def _insert(self, a: Activity) -> int:
         cur = self._store.db.execute(
             "INSERT INTO activity (kind, attendees_json, priority, duration_needed, "
-            "remaining, state, started_tick, created_tick, params_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "remaining, state, started_tick, done_tick, created_tick, params_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (a.kind, json.dumps(a.attendees), a.priority, a.duration_needed, a.remaining,
-             a.state, a.started_tick, a.created_tick, json.dumps(a.params)),
+             a.state, a.started_tick, a.done_tick, a.created_tick, json.dumps(a.params)),
         )
         a.id = int(cur.lastrowid)
         return a.id
 
     def _update(self, a: Activity) -> None:
         self._store.db.execute(
-            "UPDATE activity SET remaining = ?, state = ?, started_tick = ? WHERE id = ?",
-            (a.remaining, a.state, a.started_tick, a.id),
+            "UPDATE activity SET remaining = ?, state = ?, started_tick = ?, done_tick = ? "
+            "WHERE id = ?",
+            (a.remaining, a.state, a.started_tick, a.done_tick, a.id),
         )
 
     @staticmethod
@@ -189,7 +235,8 @@ class ActivityManager:
             id=r["id"], kind=r["kind"], attendees=json.loads(r["attendees_json"]),
             priority=r["priority"], duration_needed=r["duration_needed"],
             remaining=r["remaining"], state=r["state"], started_tick=r["started_tick"],
-            created_tick=r["created_tick"], params=json.loads(r["params_json"]),
+            done_tick=r["done_tick"], created_tick=r["created_tick"],
+            params=json.loads(r["params_json"]),
         )
 
     def get(self, activity_id: int) -> Activity | None:
@@ -233,12 +280,20 @@ class ActivityManager:
 
     def tick(self, now: int) -> None:
         """Advance one minute: burn down started activities, complete, dispatch."""
+        finished: list[Activity] = []
         for a in self._in_states("started"):
             a.remaining -= 1
             if a.remaining <= 0:
-                self._complete(a)
+                self._complete(a, now)
+                finished.append(a)
             else:
                 self._update(a)
+        # Fire completion hooks after the burn loop: a hook may request() new work,
+        # which dispatches immediately — doing that mid-loop could resurrect an
+        # interrupted activity through the loop's stale snapshot.
+        if self.on_activity_done is not None:
+            for a in finished:
+                self.on_activity_done(self._engine, a)
         self._dispatch(now)
         if self._idle_filler is not None:
             self._idle_filler(self, now)
@@ -260,17 +315,30 @@ class ActivityManager:
             self._start(a, now)
 
     def _start(self, a: Activity, now: int) -> None:
+        kind = "activity.resume" if a.state == "interrupted" else "activity.start"
         a.state = "started"
         a.started_tick = now
         self._update(a)
+        self._log_transition(a, kind, now)
         ACTIVITY_KINDS[a.kind].on_start(self._engine, a)
 
     def _interrupt(self, a: Activity) -> None:
         a.state = "interrupted"  # remaining frozen — resumes with work left
         self._update(a)
+        self._log_transition(a, "activity.interrupt", self._engine.clock.now())
 
-    def _complete(self, a: Activity) -> None:
+    def _complete(self, a: Activity, now: int) -> None:
         a.state = "done"
         a.remaining = 0
+        a.done_tick = now
         self._update(a)
+        self._log_transition(a, "activity.done", now)
         ACTIVITY_KINDS[a.kind].on_done(self._engine, a)
+
+    def _log_transition(self, a: Activity, kind: str, now: int) -> None:
+        self._engine.store.log_event(
+            now, actor=a.attendees[0] if a.attendees else "engine", kind=kind,
+            payload={"kind": a.kind, "remaining": a.remaining,
+                     **({"issue_key": a.params["issue_key"]}
+                        if a.params.get("issue_key") else {})},
+        )

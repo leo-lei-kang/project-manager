@@ -31,8 +31,24 @@ def test_send_slack_posts_costs_time_and_logs_action(tools: AgentTools, env: Env
 
     assert posted["sender_id"] == "pm" and posted["body"] == "morning standup in 5"
     assert env.clock.now() == tools.send_cost  # the send consumed sim-time
+    assert posted["sent_tick"] == 1  # landed via the event pipeline, one tick later
     kinds = [(e.actor, e.kind) for e in env.store.read_log()]
     assert ("pm", "action") in kinds
+
+
+def test_send_slack_triggers_a_slack_send_event(tools: AgentTools, env: Env) -> None:
+    # The tool's mutation is an event: a slack.send row exists and completed.
+    tools.send_slack("eng", "ping")
+    row = env.store.db.query_one(
+        "SELECT status, owner_id FROM event WHERE type = 'slack.send'")
+    assert row is not None and row["status"] == "done" and row["owner_id"] == "pm"
+
+
+def test_send_slack_unknown_channel_raises_tool_error(tools: AgentTools) -> None:
+    from pm.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="unknown channel"):
+        tools.send_slack("nope", "hello?")
 
 
 def test_read_slack_returns_conversation(tools: AgentTools, env: Env) -> None:

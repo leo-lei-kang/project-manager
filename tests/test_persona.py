@@ -16,7 +16,7 @@ import pytest
 from pm.env import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook, compose, dev_pickup_hook
+from pm.npc.behavior import WorkDriver
 from pm.npc.cast import CastMember, seed_cast
 from pm.npc.persona import (
     HEADS_DOWN,
@@ -25,7 +25,7 @@ from pm.npc.persona import (
     Persona,
     from_person,
 )
-from pm.npc.reactions import close_reactions_on_tick
+from pm.npc.reactions import close_and_wake_on_tick
 from pm.sim.events import MeetingEvent, SlackSendEvent
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
@@ -49,6 +49,13 @@ def _member(pid: str, persona: Persona = PERFECT, discipline: str = "backend") -
     return CastMember(pid, pid.capitalize(), "Engineer", discipline, "member", True, persona=persona)
 
 
+def _drive(env: Env, driver: WorkDriver, *, closes: bool = False) -> None:
+    """Kickoff sweep + completion-driven week (optionally with the close reactions)."""
+    env.engine.activities.on_activity_done = driver.on_activity_done
+    driver.sweep(env.engine)
+    Simulation(env).run(on_tick=close_and_wake_on_tick(driver) if closes else None)
+
+
 def test_persona_round_trips_through_seed_cast(env: Env) -> None:
     seed_cast(env.store, cast=[_member("alice", HEADS_DOWN), _member("dan", FREE_SPIRIT)])
     assert from_person(env.store.get_person("alice")) == HEADS_DOWN
@@ -64,7 +71,7 @@ def test_when_asked_holds_finished_work_in_review(env: Env) -> None:
     task = api.create_issue("checkout", "task", "API", estimate_minutes=5,
                             assignee="alice", actor="alice")
 
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, ["alice"], "checkout"))
+    _drive(env, WorkDriver(api, ["alice"], "checkout"))
 
     assert api.get_issue(task.id).status == "in_review"  # done work, not closed
 
@@ -80,9 +87,7 @@ def test_standup_closes_in_review_work(env: Env) -> None:
         payload={"meeting_id": "m1", "kind": "standup", "attendees": ["alice"], "title": "Standup"},
     ))
 
-    Simulation(env).run(on_tick=compose(
-        assignee_pickup_hook(api, ["alice"], "checkout"), close_reactions_on_tick,
-    ))
+    _drive(env, WorkDriver(api, ["alice"], "checkout"), closes=True)
 
     assert api.get_issue(task.id).status == "done"
 
@@ -104,7 +109,10 @@ def test_slack_mention_closes_in_review_work(env: Env) -> None:
         payload={"message_id": "m1", "channel_id": "eng", "body": "hey alice can you close it?"},
     ))
 
-    hook = compose(assignee_pickup_hook(api, ["alice"], "checkout"), close_reactions_on_tick)
+    driver = WorkDriver(api, ["alice"], "checkout")
+    env.engine.activities.on_activity_done = driver.on_activity_done
+    driver.sweep(env.engine)
+    hook = close_and_wake_on_tick(driver)
     sim = Simulation(env)
     # Drive tick-by-tick (mirroring Simulation.run) so we can observe the state
     # after the unrelated ping but before the mention.
@@ -129,9 +137,8 @@ def test_random_selection_is_seeded_and_ignores_priority(env: Env) -> None:
         for title, prio in [("A", 3), ("B", 2), ("C", 1)]
     ]
 
-    sim = Simulation(env)
-    now = sim.clock.now()
-    dev_pickup_hook(api, [_member("alice", FREE_SPIRIT)], "checkout")(sim)
+    now = env.clock.now()
+    WorkDriver(api, [_member("alice", FREE_SPIRIT)], "checkout").sweep(env.engine)
 
     picked = api.search(assignee="alice")[0].id
     expected = random.Random(f"42:alice:{now}").choice(sorted(ids))
@@ -147,7 +154,7 @@ def test_perfect_selection_takes_highest_priority(env: Env) -> None:
     high = api.create_issue("checkout", "task", "C", component="backend",
                             estimate_minutes=5, priority=1, actor="alice")
 
-    dev_pickup_hook(api, [_member("alice", PERFECT)], "checkout")(Simulation(env))
+    WorkDriver(api, [_member("alice", PERFECT)], "checkout").sweep(env.engine)
 
     assert api.search(assignee="alice")[0].id == high.id
     assert api.get_issue(low.id).assignee_id is None
@@ -163,7 +170,7 @@ def test_free_spirit_works_a_blocked_issue(env: Env) -> None:
                                assignee="alice", depends_on=[blocker.id], actor="alice")
     assert api.get_issue(blocked.id).status == "blocked"
 
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, ["alice"], "checkout"))
+    _drive(env, WorkDriver(api, ["alice"], "checkout"))
 
     assert api.get_issue(blocked.id).status == "done"  # worked despite the open blocker
     assert api.get_issue(blocker.id).status == "todo"  # nobody worked the blocker
@@ -178,9 +185,7 @@ def test_perfect_announces_progress(env: Env) -> None:
     task = api.create_issue("checkout", "task", "API", estimate_minutes=5,
                             assignee="alice", actor="alice")
 
-    Simulation(env).run(
-        on_tick=assignee_pickup_hook(api, ["alice"], "checkout", status_channel="eng")
-    )
+    _drive(env, WorkDriver(api, ["alice"], "checkout", status_channel="eng"))
 
     msgs = env.store.list_messages("eng")
     assert len(msgs) == 1  # one pickup, one announcement

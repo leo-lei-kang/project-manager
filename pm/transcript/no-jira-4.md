@@ -4,17 +4,27 @@ Attendees: Alice, Bob, Clare, David, Elieen
 
 ## Status (tracked in these notes)
 
-- **NOTES-3** (Alice) — serving API: **done**; transcripts served per meeting
-  with access checks.
-- **NOTES-4** (Clare) — transcript viewer: **in progress**; live data works,
-  speaker labels flaky — carrying into next week.
-- **NOTES-5** (David) — transcript search: **in progress**; indexing done,
-  ranking rough — carrying into next week.
-- NOTES-1 (Bob), NOTES-2 (David), NOTES-6 (Elieen) — done earlier this week.
+Third task per person landed overnight; the fourth is mid-flight and each
+queue's last task carries into next week untouched.
+
+- **NOTES-8** (Bob) — punctuation and casing: **done**. **NOTES-9** — accuracy
+  eval harness: **in progress**; NOTES-10 (latency tuning) not started.
+- **NOTES-11** (David) — retention sweep and delete API: **done**.
+  **NOTES-12** — transcript export: **in progress**; NOTES-13 (search
+  indexing) not started.
+- **NOTES-15** (Alice) — websocket push: **done**. **NOTES-16** — pagination
+  for long meetings: **in progress**; NOTES-17 (feature-flag rollout) not
+  started.
+- **NOTES-19** (Clare) — search results UI: **done**. **NOTES-20** —
+  highlight/copy/share: **in progress**; NOTES-21 (viewer states) not started.
+- **NOTES-23** (Elieen) — search flows: **done**. **NOTES-24** — mobile and
+  responsive layouts: **in progress**; NOTES-25 (accessibility review) not
+  started.
 
 ## Wrap-up
 
-- The demo worked: a full meeting transcribed live, viewed in-app.
+- The demo worked: a full meeting transcribed live, viewed and searched in-app.
+- Fifteen of 25 tasks are done, five are mid-flight, five haven't started.
 - Alice: "confession — the Jira board for this project is still completely
   empty. Every task, DRI, and status this week lived in the standup notes.
   Whoever runs the project review needs to reconstruct the week from these

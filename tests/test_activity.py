@@ -6,8 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from pm.env.environment import Env
+from pm.jira.api import JiraApi
+from pm.jira.repository import JiraRepository
 from pm.sim.activity import Activity
-from pm.world.models import Person
+from pm.world.models import Person, Project
 
 
 @pytest.fixture
@@ -117,6 +119,159 @@ def test_meeting_interrupts_all_attenders_and_they_resume(env):
     env.engine.advance_to(180)                        # 90 left each -> done by 30+30+90+...
     assert m.get(w1.id).state == "done"
     assert m.get(w2.id).state == "done"
+
+
+# -- jira_work tracks the issue named in its params ---------------------------
+
+
+@pytest.fixture
+def api(env) -> JiraApi:
+    env.store.add_project(Project(id="checkout", name="Checkout"))
+    repo = JiraRepository(env.store)
+    repo.ensure_schema()
+    return JiraApi(repo, env.engine)
+
+
+def test_jira_work_transitions_issue_to_done(env, api):
+    issue = api.create_issue("checkout", "task", "API", estimate_minutes=5,
+                             assignee="priya", actor="priya")
+    env.engine.activities.request("jira_work", ["priya"], 5, now=0,
+                                  params={"issue_key": issue.id})
+    assert api.repo.get_issue(issue.id).status == "in_progress"
+    env.engine.advance(5)
+    done = api.repo.get_issue(issue.id)
+    assert done.status == "done" and done.remaining_minutes == 0
+
+
+def test_jira_work_when_asked_parks_in_review(env, api):
+    issue = api.create_issue("checkout", "task", "API", estimate_minutes=5,
+                             assignee="priya", actor="priya")
+    env.engine.activities.request("jira_work", ["priya"], 5, now=0,
+                                  params={"issue_key": issue.id, "auto_close": False})
+    env.engine.advance(5)
+    assert api.repo.get_issue(issue.id).status == "in_review"
+
+
+def test_jira_work_survives_interruption(env, api):
+    issue = api.create_issue("checkout", "task", "API", estimate_minutes=60,
+                             assignee="priya", actor="priya")
+    m = env.engine.activities
+    w = m.request("jira_work", ["priya"], 60, now=0, params={"issue_key": issue.id})
+    env.engine.advance(30)
+    m.request("meeting", ["priya"], 30, now=env.clock.now(), params={"meeting_id": "m1"})
+    assert m.get(w.id).state == "interrupted"
+    assert api.repo.get_issue(issue.id).status == "in_progress"  # resume won't re-transition
+    env.engine.advance(60)                       # meeting 30 + remaining work 30
+    assert m.get(w.id).state == "done"
+    assert api.repo.get_issue(issue.id).status == "done"
+
+
+# -- completion hook ----------------------------------------------------------
+
+
+def test_on_activity_done_fires_once_per_completion(env):
+    seen = []
+    env.engine.activities.on_activity_done = lambda engine, a: seen.append(a.id)
+    a = env.engine.activities.request("jira_work", ["priya"], 3, now=0)
+    env.engine.advance(10)
+    assert seen == [a.id]
+    done = env.engine.activities.get(a.id)
+    assert done.state == "done" and done.done_tick == 3
+
+
+def test_on_activity_done_can_chain_next_work(env):
+    m = env.engine.activities
+
+    def chain(engine, a):
+        if a.kind == "jira_work" and not a.params.get("chained"):
+            m.request("jira_work", a.attendees, 4, engine.clock.now(),
+                      params={"chained": True})
+
+    m.on_activity_done = chain
+    m.request("jira_work", ["priya"], 3, now=0)
+    env.engine.advance(3)
+    nxt = m.started_for("priya")
+    assert nxt is not None and nxt.params == {"chained": True}
+    env.engine.advance(4)
+    assert m.get(nxt.id).state == "done"
+
+
+def test_hook_request_does_not_resurrect_interrupted_work(env):
+    m = env.engine.activities
+    w = m.request("jira_work", ["priya"], 10, now=0)
+    brk = m.request("coffee_break", ["marco"], 2, now=0)
+
+    # When marco's break ends, the hook asks for a meeting that must interrupt
+    # priya's started work — the burn loop's stale snapshot must not undo it.
+    def steal(engine, a):
+        if a.id == brk.id:
+            m.request("meeting", ["priya"], 5, engine.clock.now(), params={"meeting_id": "m1"})
+
+    m.on_activity_done = steal
+    env.engine.advance(2)
+    assert m.get(w.id).state == "interrupted"
+    assert m.started_for("priya").kind == "meeting"
+
+
+# -- meeting/OOO event bridge --------------------------------------------------
+
+
+def test_meeting_event_interrupts_activity_work_and_it_resumes(env):
+    from pm.sim.events import MeetingEvent
+
+    m = env.engine.activities
+    w = m.request("jira_work", ["priya"], 120, now=0)
+    env.engine.schedule(MeetingEvent(
+        owner_id="marco", start_tick=30, duration=30,
+        payload={"meeting_id": "m1", "attendees": ["priya"]},
+    ))
+    env.engine.advance(30)                     # meeting starts; bridge preempts work
+    assert m.get(w.id).state == "interrupted"
+    assert m.started_for("priya").kind == "in_meeting"
+    env.engine.advance(30)                     # meeting ends; work resumes
+    assert m.started_for("priya").id == w.id
+    env.engine.advance(90)                     # remaining work
+    done = m.get(w.id)
+    assert done.state == "done" and done.done_tick == 150  # estimate + meeting
+
+
+def test_meeting_bridge_writes_no_duplicate_rows(env):
+    from pm.sim.events import MeetingEvent
+
+    env.engine.schedule(MeetingEvent(
+        owner_id="marco", start_tick=1, duration=10,
+        payload={"meeting_id": "m1", "attendees": ["priya"]},
+    ))
+    env.engine.advance(11)
+    assert env.store.db.query_one("SELECT COUNT(*) AS n FROM meeting")["n"] == 1
+    assert env.store.db.query_one("SELECT COUNT(*) AS n FROM transcript")["n"] == 1
+
+
+def test_ooo_event_preempts_activity_work(env):
+    from pm.sim.events import OOOEvent
+
+    m = env.engine.activities
+    w = m.request("jira_work", ["priya"], 60, now=0)
+    env.engine.schedule(OOOEvent(owner_id="priya", start_tick=10, duration=20))
+    env.engine.advance(10)
+    assert m.get(w.id).state == "interrupted"
+    assert m.started_for("priya").kind == "ooo"
+    env.engine.advance(70)                     # ooo 20 + remaining 50
+    assert m.get(w.id).state == "done"
+
+
+def test_completion_hook_fires_at_meeting_end(env):
+    from pm.sim.events import MeetingEvent
+
+    seen = []
+    env.engine.activities.on_activity_done = lambda engine, a: seen.append(
+        (a.kind, engine.clock.now()))
+    env.engine.schedule(MeetingEvent(
+        owner_id="marco", start_tick=1, duration=10,
+        payload={"meeting_id": "m1", "attendees": ["priya"]},
+    ))
+    env.engine.advance(11)
+    assert ("in_meeting", 11) in seen
 
 
 # -- idle-filler -------------------------------------------------------------

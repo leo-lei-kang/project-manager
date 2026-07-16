@@ -6,12 +6,15 @@ personas. Every row below was actually run; the outcome column is the observed
 
 **Boards** (each `pm/scenarios/<name>.py`):
 
-- `test_single_engineer` — alice alone, 60 h of tickets in a 40-h week: 7
-  high-priority launch blockers (35 h) + 5 backlog items (25 h). Exactly eight
-  tasks fit; triage decides *which* eight. The goal line is PROJECT NOT DONE by
-  design — the success criterion is "all 7 launch blockers ship".
-- `test_two_engineers` — alice (backend) + clare (frontend), 40 h each, zero
-  slack: every odd task blocks the partner's next even task just-in-time.
+- `test_single_engineer` — alice alone carries the whole Meeting Transcripts v1
+  push (`pm/transcript/project_single_engineer.md`): six high-priority project
+  tasks (40 h — exactly her meeting-free week) plus five low-priority backlog
+  tickets (20 h) the week cannot also absorb. The verdict is PROJECT NOT DONE by
+  design (60 h board); the success criterion is "the whole 40-h project ships",
+  with whatever is left listed under the eval's Remaining section.
+- `test_two_engineers` — alice (backend) + clare (frontend) split the same
+  project (`pm/transcript/project_two_engineers.md`), 40 h each, zero slack:
+  every odd task blocks the partner's next even task just-in-time.
 - `team_with_jira` — the five-member team + meetings, 66 tasks tiling every
   member's meeting-free calendar exactly; zero slack.
 
@@ -19,43 +22,57 @@ personas. Every row below was actually run; the outcome column is the observed
 
 - `perfect` — works by priority, respects dependencies, closes work on finish.
 - `heads_down` — works fine but leaves finished work in `in_review` until a
-  standup ends or a Slack message names them; on zero-slack boards the unclosed
-  work stalls the partner's cross handoffs.
+  standup ends or a Slack message names them; unclosed work stalls the
+  partner's cross handoffs until the next standup closes it (or forever, on a
+  board with no meetings).
 - `free_spirit` — picks at seeded random from everything on their plate,
   blocked tickets included; ignores priority.
+
+**How a run moves** — NPC work is **completion-driven** (`pm/npc/behavior.py::
+WorkDriver`): one kickoff sweep dispatches everyone's first ticket as a
+`jira_work` activity, and every activity completion re-sweeps the roster (a
+finish can unblock anyone). There is no per-tick polling. Meetings preempt work
+through the `in_meeting` bridge activity — in-progress work is interrupted and
+resumes with its remaining minutes intact, so interruptions are lossless; a
+zero-slack board still lands exactly on Fri 17:00. The standup/Slack close
+reactions run in every `pm sim` week.
 
 **PM levers** — the world reacts to Slack (`pm/npc/reactions.py:_on_slack_send`):
 a message naming a person closes their `in_review` work, and a "please pick up
 <KEY>" directive bumps that ticket to priority 0 — the level even a free spirit
 works first. These are the levers a PM agent steers with (the agent's only
-*action* tool is `send_slack`). The visibility-only variant
-`test_single_engineer_with_agent` posts highlights that steer nothing — the
-contrast case; a scenario may expose `agent_review_hook`, which `pm sim`
-composes into the run automatically.
+*action* tool is `send_slack`). In `test_single_engineer_with_agent` the PM is
+an **LLM** reviewing the board every four sim-hours through those tools — a
+scenario may expose `agent_review_hook`, which `pm sim` composes into the run
+automatically. Under `pm sim` the hook needs `OPENROUTER_API_KEY` in `.env`
+(model from `OPENROUTER_MODEL`); every model round-trip and tool call is
+logged with token usage to `runs/<name>/agent-<model>.jsonl` (and mirrored
+into the run's `event_log`), summed by `pm eval` and plotted by `pm viz`
+(`agent_activity.html`).
 
-On the team boards, each standup also leaves a markdown transcript
-(`pm/transcript/`, persisted when the meeting ends) carrying an unresolved
-thread the PM must triage: a customer request that is *not* on the Jira board
-— Bob offers to build it, Alice insists on the high-priority launch work. The
-agent reviews these via the `read_transcripts` tool. (Every meeting now leaves
-a transcript when it ends; meetings without authored notes leave an empty one.)
+Every meeting leaves a transcript when it ends; meetings without authored
+notes leave an empty one. The authored set (`pm/transcript/no-jira-*.md`)
+belongs to the no-Jira scenarios below; the agent reviews transcripts via the
+`read_transcripts` tool.
 
-**Tasks that never reach Jira** — `pm/transcript/project.md` defines the
-"Meeting Transcripts v1" project and its task breakdown (DRIs, statuses,
-estimates); it is the single source for two more scenarios built by
-`pm/scenarios/project_board.py`, which files only a *selected subset* of the
-breakdown as Jira tickets:
+**Tasks that never reach Jira** — the "Meeting Transcripts v1" project ships
+with three board-sized breakdowns (`pm/transcript/project_{single_engineer,
+two_engineers,team}.md` — same project and scope, different work tasks).
+`project_team.md` (DRIs, statuses, estimates) is the single source for two more
+scenarios built by `pm/scenarios/project_board.py`, which files only a
+*selected subset* of the breakdown as Jira tickets:
 
-- `team_no_jira` — Monday's kickoff establishes all six tasks with DRIs **in
-  the meeting notes only** (the informal `task` table mirrors them as each
-  meeting ends); by Friday four are done and two carry over, and the Jira
-  board never held a ticket. `read_jira_board` says nothing is happening;
-  `read_transcripts` tells the truth. Eval: PROJECT NOT DONE — 4/6 (source:
-  notes), 0h of Jira tickets closed.
-- `team_partial_jira` — three of the six were filed (and get worked on the
-  board as usual); the other three live only in the notes. The board looks
-  healthy but the project is twice its size. Eval: PROJECT NOT DONE — 4/6
-  (source: notes), all 20h of filed tickets closed.
+- `team_no_jira` — Monday's kickoff establishes all 25 tasks (a zero-slack
+  week: 2,220 min per DRI after the meeting fabric) with DRIs **in the meeting
+  notes only** (the informal `task` table mirrors them as each meeting ends);
+  by Friday 15 are done, five carry over mid-flight, five never started, and
+  the Jira board never held a ticket. `read_jira_board` says nothing is
+  happening; `read_transcripts` tells the truth. Eval: PROJECT NOT DONE —
+  15/25 (source: notes), 0h of Jira tickets closed.
+- `team_partial_jira` — three of the 25 were filed (and get worked on the
+  board as usual); the other 22 live only in the notes. The board looks
+  healthy but the project is eight times its size. Eval: PROJECT NOT DONE —
+  15/25 (source: notes), all 20h of filed tickets closed.
 
 `pm eval` grades exactly this: project completion from the informal task table
 (falling back to the Jira board when a run has none, as on the boards above),
@@ -65,11 +82,11 @@ plus the hours of Jira tickets closed — no deadline check.
 
 | # | Cast | Personas | Verified outcome |
 |---|------|----------|------------------|
-| 1 | single engineer | `perfect` | 8/12 done; **all 7 launch blockers ship** |
-| 2 | single engineer | `free_spirit` | 8/12 done; **2 launch blockers left** at Fri 17:00 |
+| 1 | single engineer | `perfect` | 6/11 done — **the whole 40-h project ships** at exactly Fri 17:00; only backlog remains |
+| 2 | single engineer | `free_spirit` | 6/11 done — **2 project tasks left** at Fri 17:00, displaced by backlog picks |
 | 3 | two engineers | `perfect` | **PROJECT DONE** — 16/16, last completion exactly Fri 17:00 |
-| 4 | two engineers | alice=`free_spirit`, clare=`heads_down` | **PROJECT NOT DONE** — 8/16; clare's work sits `in_review`, handoffs stall |
-| 5 | team (team_with_jira) | mixed: bob+elieen `free_spirit`, clare `heads_down`, rest `perfect` | **PROJECT NOT DONE** — 45/66 |
+| 4 | two engineers | alice=`free_spirit`, clare=`heads_down` | **PROJECT NOT DONE** — 8/16; no meetings on this board, so clare's `in_review` work never closes and handoffs stall |
+| 5 | team (team_with_jira) | mixed: bob+elieen `free_spirit`, clare `heads_down`, rest `perfect` | **PROJECT NOT DONE** — 63/66; daily standups close clare's parked work, but each day's parking still slips handoffs past the zero-slack tiling |
 
 ## Running them
 
@@ -85,8 +102,9 @@ uv run pm sim --scenario team_mixed_persona                  # 5
 ```
 
 Two more scenarios round out the set: `team_with_jira` (the team all `perfect` —
-66/66 PROJECT DONE) and `test_single_engineer_with_agent` (the visibility-only
-PM: highlights that steer nothing, so the outcome equals row 2).
+66/66 PROJECT DONE) and `test_single_engineer_with_agent` (the LLM PM reviewing
+the free-spirit board; a PM that steers nothing reproduces row 2, which is what
+the hermetic tests pin with a scripted fake model).
 
 Then `uv run pm eval --scenario <name>` for the goal line (also written to
 `runs/<name>/eval.json`) and `uv run pm viz --scenario <name>` for the calendars +
@@ -97,6 +115,9 @@ ticket timeline. Everything for a scenario lives under `runs/<name>/`.
 The LLM agent's only *action* tool is `send_slack`, so it steers the world
 through the two Slack levers above. Inside a simulated week it runs as a
 scenario's `agent_review_hook`, which the runner (`pm/scenarios/runner.py`)
-composes into the sim loop. To exercise the LLM loop itself against a seeded
-throwaway board, run `uv run python examples/run_agent_llm.py` — see the
+composes into the sim loop — `pm sim --scenario test_single_engineer_with_agent`
+is the live example (needs `OPENROUTER_API_KEY`), leaving
+`runs/<name>/agent-<model>.jsonl` for `pm eval` (token totals) and `pm viz`
+(`agent_activity.html` timeline). To exercise the LLM loop itself against a
+seeded throwaway board, run `uv run python examples/run_agent_llm.py` — see the
 README's [Agent](../../README.md#agent) section.

@@ -15,23 +15,25 @@ from pm.cli import SCENARIOS, app
 from pm.eval import evaluate
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.scenarios import runner
+from pm.scenarios import runner, test_single_engineer_with_agent
 from pm.viz import write_calendars, write_jira_tasks
+
+from tests.llm_fakes import FakeClient, text_resp
 
 _HIGH_PRIORITY = 1
 
 # name -> (done_tasks, total_tasks, goal_accomplished, launch_blockers_left)
 # blockers_left is None for the non-solo boards. Verified at seed 42 (scenarios.md).
 EXPECTED = {
-    "team_no_jira":                     (4, 6, False, None),
-    "team_partial_jira":                (4, 6, False, None),
-    "test_single_engineer":             (8, 12, False, 0),
-    "test_single_engineer_free_spirit": (8, 12, False, 2),
-    "test_single_engineer_with_agent":  (8, 12, False, 2),
+    "team_no_jira":                     (15, 25, False, None),
+    "team_partial_jira":                (15, 25, False, None),
+    "test_single_engineer":             (6, 11, False, 0),
+    "test_single_engineer_free_spirit": (6, 11, False, 2),
+    "test_single_engineer_with_agent":  (6, 11, False, 2),
     "test_two_engineers":               (16, 16, True, None),
     "test_two_engineers_mixed":         (8, 16, False, None),
     "team_with_jira":                   (66, 66, True, None),
-    "team_mixed_persona":               (45, 66, False, None),
+    "team_mixed_persona":               (63, 66, False, None),
 }
 
 
@@ -41,8 +43,15 @@ def test_every_registered_scenario_has_an_expected_row() -> None:
 
 
 @pytest.mark.parametrize("name", list(EXPECTED))
-def test_scenario_outcome_matches_catalog(name: str, tmp_path) -> None:
+def test_scenario_outcome_matches_catalog(name: str, tmp_path, monkeypatch) -> None:
     module = SCENARIOS[name]
+    if name == "test_single_engineer_with_agent":
+        # Keep the run hermetic: an LLM PM that says nothing steers nothing, so
+        # the outcome equals the free-spirit row it documents.
+        hook = module.agent_review_hook
+        monkeypatch.setattr(
+            test_single_engineer_with_agent, "agent_review_hook",
+            lambda env: hook(env, client=FakeClient([text_resp("nothing to do")])))
     env = module.build(run_id=name, root=tmp_path)  # baked persona, no override
     runner.drive(env, module)
 

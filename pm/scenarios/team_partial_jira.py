@@ -1,13 +1,13 @@
-"""The "Team, Partial Jira" scenario — half the project on the board, half in notes.
+"""The "Team, Partial Jira" scenario — a sliver of the project on the board.
 
-Same Meeting Transcripts v1 project (``pm/transcript/project.md``) as
-:mod:`~pm.scenarios.team_no_jira`, but three of the six tasks were actually
+Same Meeting Transcripts v1 project (``pm/transcript/project_team.md``) as
+:mod:`~pm.scenarios.team_no_jira`, but three of the 25 tasks were actually
 filed as Jira tickets (NOTES-1, NOTES-2, NOTES-6 — assignee = DRI) and the team
-works them on the board as usual. The other three exist only in the meeting
-notes: the Monday kickoff establishes all six in the informal ``task`` table,
+works them on the board as usual. The other 22 exist only in the meeting
+notes: the Monday kickoff establishes all 25 in the informal ``task`` table,
 and the week's meeting payloads keep their statuses current. The trap for a PM:
 the board looks healthy and complete, but ``read_transcripts`` and the ``task``
-table show a project twice the size.
+table show a project eight times the size.
 """
 
 from __future__ import annotations
@@ -67,5 +67,5 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
 
 if __name__ == "__main__":
     build()
-    print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (three of six tasks on "
+    print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (three of 25 tasks on "
           "the Jira board; the rest live only in the meeting notes).")

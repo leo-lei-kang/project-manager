@@ -1,4 +1,4 @@
-"""Seed the "Meeting Transcripts v1" project from ``pm/transcript/project.md``.
+"""Seed the "Meeting Transcripts v1" project from ``pm/transcript/project_team.md``.
 
 The shared builder behind the ``team_*`` scenarios: the project doc is the
 single source of the task breakdown, and ``jira_ids`` selects which of those
@@ -27,7 +27,7 @@ PROJECT_NAME = "Meeting Transcripts v1"
 def seed_project_board(env: Env, *, jira_ids: Collection[str] = ()) -> None:
     """Add the project row and file Jira tickets for the selected task ids only.
 
-    ``jira_ids`` are ``project.md`` task ids (``NOTES-*``). An empty selection
+    ``jira_ids`` are ``project_team.md`` task ids (``NOTES-*``). An empty selection
     leaves the board bare (the ``issue`` table still exists — ``pm eval`` needs
     it) while the meeting notes carry the whole plan.
     """
@@ -40,7 +40,7 @@ def seed_project_board(env: Env, *, jira_ids: Collection[str] = ()) -> None:
     by_id = {t["id"]: t for t in project_tasks()}
     unknown = set(jira_ids) - set(by_id)
     if unknown:
-        raise ValueError(f"unknown project.md task id(s): {sorted(unknown)}")
+        raise ValueError(f"unknown project_team.md task id(s): {sorted(unknown)}")
     disciplines = {c.id: c.discipline for c in _CAST_MEMBERS}
     for task_id in sorted(jira_ids):
         t = by_id[task_id]

@@ -10,9 +10,11 @@ from pm.db.store import Store
 from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
+from pm.agent.log import AgentLog, agent_log_name
 from pm.scenarios import team_with_jira
 from pm.sim.engine import Engine
-from pm.viz import write_calendars, write_jira_tasks
+from pm.viz import write_agent_activity, write_calendars, write_jira_tasks
+from pm.viz.agent_activity import render_agent_activity_html
 from pm.viz.calendars import (
     Block,
     day_segments,
@@ -180,7 +182,40 @@ def test_load_blocks_covers_completed_runs_and_attendees(tmp_path):
     assert blocks == {"alice": [standup], "bob": [standup]}
 
 
+def test_render_agent_activity_html_markers_and_entries():
+    entries = [
+        {"tick": 0, "kind": "llm_call", "step": 0, "model": "m/1",
+         "input_tokens": 100, "output_tokens": 20, "tool_calls": ["send_slack"]},
+        {"tick": 0, "kind": "tool_call", "name": "send_slack",
+         "args": {"channel_id": "eng"}},
+        {"tick": 720, "kind": "llm_call", "step": 0, "model": "m/1",
+         "input_tokens": 150, "output_tokens": 30, "tool_calls": []},
+    ]
+    page = render_agent_activity_html(entries, heading="run demo")
+
+    assert "run demo" in page
+    assert "2 LLM calls, 250 in / 50 out tokens" in page  # totals line
+    assert page.count("<circle") == 3  # one marker per entry
+    assert "Mon 09:00" in page and "Tue 13:00" in page  # tick labels (0 and 720)
+    assert "send_slack" in page and "100 in / 20 out tokens" in page
+
+
 # -- end to end ----------------------------------------------------------------
+
+def test_write_agent_activity_reads_run_log(tmp_path):
+    env = team_with_jira.build(run_id="e2e-agent", root=tmp_path / "runs")
+    env.close()
+    run_dir = tmp_path / "runs" / "e2e-agent"
+
+    assert write_agent_activity("e2e-agent", root=tmp_path / "runs") is None  # no log
+
+    log = AgentLog(run_dir / agent_log_name("m/1"))
+    log.append({"tick": 240, "kind": "llm_call", "step": 0, "model": "m/1",
+                "input_tokens": 10, "output_tokens": 5, "tool_calls": []})
+    out = write_agent_activity("e2e-agent", root=tmp_path / "runs")
+    assert out == run_dir / "agent_activity.html"
+    assert "Mon 13:00" in out.read_text()  # tick 240 rendered on the timeline
+
 
 def test_writers_render_team_with_jira(tmp_path):
     env = team_with_jira.build(run_id="e2e", root=tmp_path / "runs")

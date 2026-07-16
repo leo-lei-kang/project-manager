@@ -30,7 +30,11 @@ OpenRouter-hosted model — see [Architecture](#architecture-at-a-glance),
   simulated minute), not wall-clock. A seeded RNG (stored in `meta`) will drive
   NPC delays, so a scenario replays identically.
 - **Inspectable.** Because state is plain SQLite plus an append-only
-  `event_log`, you can audit any run with the stock `sqlite3` CLI.
+  `event_log`, you can audit any run with the stock `sqlite3` CLI. `pm sim`
+  narrates that log to the console live (silence with `--no-verbose`) and
+  `pm log --scenario <name>` replays a finished run's sim-time timeline —
+  event lifecycles, NPC decisions and activity transitions, and the LLM
+  agent's calls.
 
 ```
 pm/
@@ -91,6 +95,9 @@ uv run pm eval --scenario team_with_jira
 # writes runs/team_with_jira/{calendars,jira_tasks}.html.
 uv run pm viz --scenario team_with_jira
 
+# Print the run's sim-time timeline (events, NPC decisions, agent calls).
+uv run pm log --scenario team_with_jira
+
 # Inspect the database directly.
 uv run sqlite3 runs/team_with_jira/world.db '.tables'
 uv run sqlite3 runs/team_with_jira/world.db 'SELECT * FROM meta;'
@@ -113,8 +120,8 @@ input — there is no persona flag; **each scenario bakes in its own personas**.
 | Board | Stresses |
 |----------|----------|
 | `team_with_jira` | a capacity-saturated board the team can *barely* finish in order |
-| `test_two_engineers` | two engineers whose tickets cross-block each other just-in-time |
-| `test_single_engineer` | one overloaded engineer — priority triage decides what ships |
+| `test_two_engineers` | two engineers splitting the transcripts project; tickets cross-block just-in-time |
+| `test_single_engineer` | one engineer, the 40-h transcripts project + 20 h of backlog — triage decides if it ships |
 
 Each board ships as self-contained scenarios — a baseline persona and a
 misbehaving-persona variant. The verified persona configurations (each runnable as
@@ -212,7 +219,13 @@ Reads are free; only `send_slack` advances the clock. The tools are handed to an
 **OpenRouter**-hosted model as function schemas and driven **in-process** — a
 `model → tool call → result` loop in one process, no server or transport
 (`LLMAgent` + `InProcessBackend`). Inside a simulated week, the agent runs as
-the scenario runner's review hook (`pm/scenarios/runner.py`).
+the scenario runner's review hook (`pm/scenarios/runner.py`):
+`pm sim --scenario test_single_engineer_with_agent` has the LLM PM review the
+board every four sim-hours (needs `OPENROUTER_API_KEY` in `.env`; model from
+`OPENROUTER_MODEL`). Every model round-trip and tool call is logged with token
+usage to `runs/<scenario>/agent-<model>.jsonl` (one file per driving model) and
+mirrored into the `event_log` timeline — `pm eval` sums the input/output tokens
+and `pm viz` plots when the agent acted (`agent_activity.html`).
 
 To exercise the LLM loop against a seeded throwaway board, copy
 [`.env.example`](.env.example) to `.env` (gitignored) and set

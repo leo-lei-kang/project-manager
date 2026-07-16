@@ -36,7 +36,6 @@ from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import PERFECT, Persona
 from pm.sim.clock import MINUTES_PER_WORKDAY
 from pm.sim.events import MeetingEvent
-from pm.transcript import standup_transcript
 from pm.world.models import Project
 
 SCENARIO = "team_with_jira"
@@ -212,12 +211,9 @@ def _schedule_meetings(env: Env) -> None:
             owner_id="alice", start_tick=at(day, hour, minute), duration=dur,
             payload=payload, initiator_id=initiator))
 
-    # Daily standup 11:00-11:30, Mon-Fri, the whole team. Each carries its
-    # authored markdown transcript (pm/transcript/) — the meeting record the
-    # PM reviews, including the off-board translation request thread.
+    # Daily standup 11:00-11:30, Mon-Fri, the whole team.
     for day in range(5):
-        meeting(f"standup-{day}", "standup", day, 11, 0, 30, MEMBERS,
-                transcript=standup_transcript(day))
+        meeting(f"standup-{day}", "standup", day, 11, 0, 30, MEMBERS)
 
     # Alice's 1:1s with each other member, 30 min, Mon-Thu 14:00.
     for i, member in enumerate(["bob", "clare", "david", "elieen"]):

@@ -23,7 +23,7 @@ from pm.exceptions import ToolError
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import AGENT
-from pm.world.models import Message
+from pm.sim.events import SlackSendEvent
 
 
 class AgentTools:
@@ -42,29 +42,35 @@ class AgentTools:
     def send_slack(self, channel_id: str, body: str) -> dict[str, Any]:
         """Post a message to a channel; consumes ``send_cost`` sim-minutes.
 
-        Routes through ``perform_action`` so the message lands at the current tick,
-        the action is logged, and time then advances (firing due background events).
+        The tool *triggers an event*: the action's effect schedules a
+        ``SlackSendEvent``, and the message lands through the event pipeline during
+        the action's ``advance(cost)`` window (one tick of send latency) — the same
+        path NPC messages take, so world reactions fire for it too.
         """
-        store = self.env.store
-        n = store.count_messages(channel_id)
-        message = Message(
-            id=f"{channel_id}-m{n}",
-            channel_id=channel_id,
-            sender_id=self.actor,
-            body=body,
-            sent_tick=self.env.clock.now(),
-        )
-        try:
-            self.env.engine.perform_action(
-                actor=self.actor, cost=self.send_cost,
-                effect=lambda: store.add_message(message),
-            )
-        except Exception as e:  # e.g. unknown channel / sender (FK) — surface cleanly
+        engine = self.env.engine
+        now = self.env.clock.now()
+        # Preflight: the write is deferred into the event, so validate the channel
+        # here to fail synchronously with a clean error.
+        if self.env.store.db.query_one(
+                "SELECT id FROM channel WHERE id = ?", (channel_id,)) is None:
             raise ToolError(
-                f"could not send to channel {channel_id!r}: {e}",
+                f"could not send to channel {channel_id!r}: unknown channel",
                 details={"channel_id": channel_id},
-            ) from e
-        return message.model_dump()
+            )
+        message_id = f"{channel_id}-m{self.env.store.count_messages(channel_id)}"
+        engine.perform_action(
+            actor=self.actor, cost=self.send_cost,
+            effect=lambda: engine.schedule(SlackSendEvent(
+                owner_id=self.actor, start_tick=now,
+                payload={"message_id": message_id, "channel_id": channel_id, "body": body},
+            )),
+        )
+        landed = [m for m in self.env.store.list_messages(channel_id) if m.id == message_id]
+        if landed:
+            return landed[0].model_dump()
+        # Cost clamped to 0 at week end: the event is queued but hasn't landed yet.
+        return {"id": message_id, "channel_id": channel_id, "sender_id": self.actor,
+                "body": body, "sent_tick": None}
 
     def read_slack(self, channel_id: str) -> list[dict[str, Any]]:
         """Return the messages in a channel, oldest first (no sim-time cost)."""

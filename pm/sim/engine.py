@@ -63,14 +63,19 @@ class Engine:
     # -- asynchronous side ---------------------------------------------------
 
     def step(self) -> list[Event]:
-        """Advance exactly one simulated minute, updating the event queue.
+        """Advance exactly one simulated minute, updating activities and events.
 
-        Order within the tick: first *start* every event that is now due to begin,
-        then *complete* every active event whose remaining time has hit zero. An
-        instantaneous event (``duration == 0``) therefore starts and finishes in the
-        same tick. Returns the events that transitioned this minute.
+        Order within the tick: first *tick activities* (work ending at this minute
+        completes before anything that begins at it), then *start* every event that
+        is now due to begin, then *complete* every active event whose remaining time
+        has hit zero. An instantaneous event (``duration == 0``) therefore starts and
+        finishes in the same tick. Returns the events that transitioned this minute.
         """
         now = self.clock.advance(1)
+        # Burn down activities first: work whose last minute lands exactly at an
+        # event's start tick must finish before that event (e.g. a meeting bridge)
+        # can interrupt it — otherwise zero-slack schedules strand a minute.
+        self.activities.tick(now)
         transitioned: list[Event] = []
         for event in self.store.pending_events_starting_at(now):
             event.start(self)
@@ -80,8 +85,6 @@ class Engine:
                 event.done(self)
                 self.store.clear_occupancy(event.id)  # free the NPC's calendar block
                 transitioned.append(event)
-        # Advance durative activities (burn down, complete, resume) for this minute.
-        self.activities.tick(now)
         return transitioned
 
     def advance(self, minutes: int) -> list[Event]:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+import sqlite3
 from pathlib import Path
 from typing import NamedTuple
 
@@ -72,6 +73,25 @@ def load_blocks(store: Store) -> dict[str, list[Block]]:
         people.discard("")
         block = Block(kind, r["start_tick"], r["start_tick"] + r["duration"], title)
         for pid in people:
+            blocks.setdefault(pid, []).append(block)
+    # Completion-driven runs carry NPC work in the activity table (meetings/OOO
+    # still come from their event rows above — the bridge kinds are skipped to
+    # avoid double-drawing). Legacy DBs may lack the table/column: treat as empty.
+    try:
+        rows = store.db.query_all(
+            "SELECT attendees_json, created_tick, done_tick, duration_needed, params_json "
+            "FROM activity WHERE kind = 'jira_work' AND state != 'cancelled' ORDER BY id"
+        )
+    except sqlite3.OperationalError:
+        rows = []
+    for r in rows:
+        params = json.loads(r["params_json"])
+        issue_key = params.get("issue_key", "")
+        title = titles.get(issue_key) or issue_key or "jira_work"
+        end = r["done_tick"] if r["done_tick"] is not None else (
+            r["created_tick"] + r["duration_needed"])
+        block = Block("jira_ticket", r["created_tick"], end, title)
+        for pid in json.loads(r["attendees_json"]):
             blocks.setdefault(pid, []).append(block)
     return blocks
 

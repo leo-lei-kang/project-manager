@@ -4,14 +4,20 @@ Attendees: Alice, Bob, Clare, David, Elieen
 
 ## Status (tracked in these notes)
 
+Everyone opened their queue Monday afternoon; the first task per person is
+moving.
+
 - **NOTES-1** (Bob) — live STT pipeline: **in progress**; audio ingest wired,
   first transcripts coming out garbled but real.
 - **NOTES-2** (David) — transcript storage: **in progress**; schema drafted,
   retention TBD.
+- **NOTES-3** (Alice) — serving API: **in progress**; endpoints stubbed against
+  David's draft schema.
+- **NOTES-4** (Clare) — transcript viewer: **in progress**; skeleton renders
+  against fixture data.
 - **NOTES-6** (Elieen) — design pass: **in progress**; reading-view
   explorations started.
-- NOTES-3 (Alice), NOTES-4 (Clare), NOTES-5 (David) — not started; blocked on
-  storage and pipeline shapes settling.
+- Everything else (NOTES-5, 7–25) — not started; each queue runs in order.
 
 ## Discussion
 

@@ -15,22 +15,21 @@ from pm.db.store import Store
 from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.persona import FREE_SPIRIT
+from pm.scenarios import runner
+from pm.scenarios import test_two_engineers as scenario
 from pm.scenarios.test_two_engineers import (
     DEPS,
-    MEMBERS,
     PROJECT_ID,
     TASKS,
     build,
 )
 from pm.sim.clock import WEEK_END_TICK
-from pm.sim.simulation import Simulation
 
 
 def _run_week(env) -> JiraApi:
     api = JiraApi(JiraRepository(env.store), env.engine)
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, MEMBERS, PROJECT_ID))
+    runner.drive(env, scenario)
     return api
 
 
@@ -78,7 +77,7 @@ def test_default_personas_finish_exactly_at_week_end(tmp_path):
     assert {t.status for t in tasks} == {"done"}
     assert sum(t.remaining_minutes for t in tasks) == 0
     last_done = env.store.db.query_one(
-        "SELECT MAX(done_tick) AS t FROM event WHERE type = 'jira_ticket'")["t"]
+        "SELECT MAX(done_tick) AS t FROM activity WHERE kind = 'jira_work'")["t"]
     assert last_done == WEEK_END_TICK
     dropped = env.store.db.query_one(
         "SELECT COUNT(*) AS n FROM event_log WHERE kind = 'event.dropped_past_week'")["n"]
@@ -105,16 +104,16 @@ def test_free_spirit_works_blocked_tickets_out_of_order(tmp_path):
         (t.assignee_id, titles_to_ordinal[(t.assignee_id, t.title)]): t.id
         for t in tasks
     }
-    events = {
-        json.loads(r["payload_json"])["issue_key"]: (r["start_tick"], r["done_tick"])
+    spans = {
+        json.loads(r["params_json"])["issue_key"]: (r["created_tick"], r["done_tick"])
         for r in env.store.db.query_all(
-            "SELECT payload_json, start_tick, done_tick FROM event "
-            "WHERE type = 'jira_ticket'")
+            "SELECT params_json, created_tick, done_tick FROM activity "
+            "WHERE kind = 'jira_work'")
     }
     violations = [
         (blocker, dependent)
         for blocker, dependent in DEPS
-        if events[keys[dependent]][0] < events[keys[blocker]][1]
+        if spans[keys[dependent]][0] < spans[keys[blocker]][1]
     ]
     assert violations  # at least one dependent was worked before its blocker
     env.close()

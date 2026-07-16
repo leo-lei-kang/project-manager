@@ -14,6 +14,7 @@ client + tool backend).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any, Protocol
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -56,12 +57,18 @@ class LLMAgent:
     def __init__(
         self, client: Any, model: str, backend: ToolBackend,
         *, system: str = _SYSTEM, max_steps: int = 12,
+        log: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.client = client
         self.model = model
         self.backend = backend
         self.system = system
         self.max_steps = max_steps
+        self.log = log
+
+    def _log(self, entry: dict[str, Any]) -> None:
+        if self.log is not None:
+            self.log(entry)
 
     async def run(self, goal: str) -> str:
         """Pursue ``goal`` with the tools; return the model's final text."""
@@ -70,17 +77,25 @@ class LLMAgent:
             {"role": "system", "content": self.system},
             {"role": "user", "content": goal},
         ]
-        for _ in range(self.max_steps):
+        for step in range(self.max_steps):
             resp = await self.client.chat.completions.create(
                 model=self.model, messages=messages, tools=tools or None,
             )
             msg = resp.choices[0].message
             messages.append(msg.model_dump() if hasattr(msg, "model_dump") else msg)
             calls = getattr(msg, "tool_calls", None)
+            usage = getattr(resp, "usage", None)
+            self._log({
+                "kind": "llm_call", "step": step, "model": self.model,
+                "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                "tool_calls": [tc.function.name for tc in calls] if calls else [],
+            })
             if not calls:
                 return msg.content or ""
             for tc in calls:
                 args = json.loads(tc.function.arguments or "{}")
+                self._log({"kind": "tool_call", "name": tc.function.name, "args": args})
                 result = await self.backend.call(tc.function.name, args)
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": result}

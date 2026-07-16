@@ -8,15 +8,17 @@ past tick 2400, and the all-done assertion fails.
 
 from __future__ import annotations
 
+import json
+
 from pm.db.store import Store
 from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.persona import FREE_SPIRIT
-from pm.scenarios.team_with_jira import DEPS, MEMBERS, PROJECT_ID, TASKS, build
+from pm.scenarios import runner
+from pm.scenarios import team_with_jira as scenario
+from pm.scenarios.team_with_jira import DEPS, PROJECT_ID, TASKS, build
 from pm.sim.clock import WEEK_END_TICK
-from pm.sim.simulation import Simulation
 
 # Usable work capacity per member: 2400-tick week minus their meeting load.
 CAPACITY = {"alice": 2025, "bob": 2115, "clare": 2115, "david": 2160, "elieen": 2160}
@@ -50,7 +52,7 @@ def test_default_personas_finish_exactly_at_week_end(tmp_path):
     env = build(run_id="tight-run", root=tmp_path)
     api = JiraApi(JiraRepository(env.store), env.engine)
 
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, MEMBERS, PROJECT_ID))
+    runner.drive(env, scenario)
 
     assert env.clock.now() == WEEK_END_TICK
     tasks = api.search(project_id=PROJECT_ID, issue_type="task")
@@ -58,7 +60,7 @@ def test_default_personas_finish_exactly_at_week_end(tmp_path):
     assert sum(t.remaining_minutes for t in tasks) == 0
     # "barely": the last completion lands exactly on the final tick of the week
     last_done = env.store.db.query_one(
-        "SELECT MAX(done_tick) AS t FROM event WHERE type = 'jira_ticket'")["t"]
+        "SELECT MAX(done_tick) AS t FROM activity WHERE kind = 'jira_work'")["t"]
     assert last_done == WEEK_END_TICK
     # nothing was pushed past the week
     dropped = env.store.db.query_one(
@@ -67,16 +69,38 @@ def test_default_personas_finish_exactly_at_week_end(tmp_path):
     env.close()
 
 
-def test_free_spirit_personas_do_not_finish(tmp_path):
-    # Random task selection strands time behind meetings and idles on blocked
-    # deps; with zero slack the same board cannot complete. Deterministic per seed.
+def test_free_spirit_personas_finish_but_violate_dependency_order(tmp_path):
+    # Completion-driven activities make interruptions lossless (a meeting pauses
+    # work, which resumes with its remaining minutes intact), so even random
+    # selection completes a zero-slack board — but it works blocked tickets
+    # before the work they depend on. Deterministic per seed.
     env = build(run_id="tight-chaos", root=tmp_path, member_persona=FREE_SPIRIT)
     api = JiraApi(JiraRepository(env.store), env.engine)
 
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, MEMBERS, PROJECT_ID))
+    runner.drive(env, scenario)
 
     assert env.clock.now() == WEEK_END_TICK
     tasks = api.search(project_id=PROJECT_ID, issue_type="task")
-    done = sum(1 for t in tasks if t.status == "done")
-    assert 0 < done < 66  # the team worked, but couldn't finish the week
+    assert {t.status for t in tasks} == {"done"}
+    spans = {
+        json.loads(r["params_json"])["issue_key"]: (r["created_tick"], r["done_tick"])
+        for r in env.store.db.query_all(
+            "SELECT params_json, created_tick, done_tick FROM activity "
+            "WHERE kind = 'jira_work'")
+    }
+    titles_to_ordinal = {
+        (member, title): ordinal
+        for member, rows in TASKS.items()
+        for ordinal, (title, _) in enumerate(rows, start=1)
+    }
+    keys = {
+        (t.assignee_id, titles_to_ordinal[(t.assignee_id, t.title)]): t.id
+        for t in tasks
+    }
+    violations = [
+        (blocker, dependent)
+        for blocker, dependent in DEPS
+        if spans[keys[dependent]][0] < spans[keys[blocker]][1]
+    ]
+    assert violations  # at least one dependent started before its blocker finished
     env.close()

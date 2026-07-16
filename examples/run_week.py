@@ -27,7 +27,7 @@ from pathlib import Path
 
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
+from pm.npc.behavior import WorkDriver
 from pm.scenarios import test_two_engineers
 from pm.sim.clock import MINUTES_PER_WORKDAY, WEEKDAYS, WORKDAYS, format_tick
 from pm.sim.simulation import Simulation
@@ -62,13 +62,14 @@ def main() -> None:
         api = JiraApi(repo, env.engine)
         sim = Simulation(env)
 
-        pickup = assignee_pickup_hook(api, test_two_engineers.MEMBERS, test_two_engineers.PROJECT_ID)
+        driver = WorkDriver(api, test_two_engineers.MEMBERS, test_two_engineers.PROJECT_ID)
+        env.engine.activities.on_activity_done = driver.on_activity_done
+        driver.sweep(env.engine)  # kickoff: each engineer picks their first issue
 
         print(f"Simulating the work week, starting {sim.now_label()} "
               f"({env.scheduler.pending_count()} events queued)\n")
 
         def on_tick(s: Simulation) -> None:
-            pickup(s)  # engineers pick up their next ready issue
             now = s.clock.now()
             if now % MINUTES_PER_WORKDAY == 0:  # each morning at 09:00
                 if now > 0:  # a full day just closed

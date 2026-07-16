@@ -4,26 +4,22 @@ from __future__ import annotations
 
 import pytest
 
+from pm.agent.log import AgentLog, agent_log_name
 from pm.env.environment import Env
-from pm.eval import evaluate, format_report
+from pm.eval import evaluate, format_report, to_dict
 from pm.exceptions import ConfigurationError
-from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
-from pm.npc.persona import FREE_SPIRIT
-from pm.scenarios import runner, team_no_jira, team_partial_jira
-from pm.scenarios.team_with_jira import MEMBERS, PROJECT_ID, build
-from pm.sim.simulation import Simulation
-from pm.world.models import Project
+from pm.scenarios import runner, team_no_jira, team_partial_jira, team_with_jira
+from pm.scenarios.team_with_jira import PROJECT_ID, build
+from pm.world.models import Person, Project
 
 EXPECTED_COUNTS = {"alice": 16, "bob": 13, "clare": 13, "david": 12, "elieen": 12}
 
 
 def _run(tmp_path, run_id, **kwargs):
     env = build(run_id=run_id, root=tmp_path, **kwargs)
-    api = JiraApi(JiraRepository(env.store), env.engine)
-    Simulation(env).run(on_tick=assignee_pickup_hook(api, MEMBERS, PROJECT_ID))
+    runner.drive(env, team_with_jira)
     return env
 
 
@@ -47,11 +43,24 @@ def test_board_project_done(tmp_path):
 
 
 def test_board_project_unfinished(tmp_path):
-    env = _run(tmp_path, "eval-chaos", member_persona=FREE_SPIRIT)
+    # A half-done board, seeded directly: the unfinished-report fields.
+    env = Env.make(run_id="eval-chaos", root=tmp_path)
+    env.store.add_project(Project(id="GA", name="Live Transcription GA"))
+    for pid in ("alice", "clare"):
+        env.store.add_person(Person(id=pid, name=pid))
+    repo = JiraRepository(env.store)
+    repo.ensure_schema()
+    repo.add_issue(Issue(id="GA-1", project_id="GA", issue_type="task", title="Shipped",
+                         status="done", assignee_id="alice", estimate_minutes=60,
+                         updated_tick=100))
+    repo.add_issue(Issue(id="GA-2", project_id="GA", issue_type="task", title="Mid-flight",
+                         status="in_progress", assignee_id="alice", estimate_minutes=90))
+    repo.add_issue(Issue(id="GA-3", project_id="GA", issue_type="task", title="Untouched",
+                         status="todo", assignee_id="clare", estimate_minutes=120))
     report = evaluate(env.store)
 
     assert not report.goal_accomplished
-    assert 0 < report.done_tasks < 66
+    assert (report.done_tasks, report.total_tasks) == (1, 3)
     assert 0 < report.closed_jira_minutes < report.total_jira_minutes
     assert report.remaining  # unfinished tasks are reported
     # every remaining task is carried in exactly one person's remaining list
@@ -85,6 +94,31 @@ def test_notes_project_not_done_despite_green_board(tmp_path):
     assert (report.done_tasks, report.total_tasks) == (4, 6)
     assert not report.goal_accomplished
     assert report.closed_jira_minutes == report.total_jira_minutes == 1200  # the filed subset
+    env.close()
+
+
+def test_agent_token_usage_from_jsonl(tmp_path):
+    # run_dir sums the llm_call entries of the run's agent.jsonl into the report.
+    env = Env.make(run_id="eval-agent", root=tmp_path)
+    env.store.add_project(Project(id="p1", name="One"))
+    JiraRepository(env.store).ensure_schema()
+    run_dir = tmp_path / "eval-agent"
+    log = AgentLog(run_dir / agent_log_name("fake-model"))
+    log.append({"tick": 0, "kind": "llm_call", "input_tokens": 100, "output_tokens": 20})
+    log.append({"tick": 0, "kind": "tool_call", "name": "send_slack"})
+    log.append({"tick": 240, "kind": "llm_call", "input_tokens": 150, "output_tokens": 30})
+
+    report = evaluate(env.store, run_dir=run_dir)
+    assert (report.agent_llm_calls, report.agent_input_tokens,
+            report.agent_output_tokens) == (2, 250, 50)
+    assert "Agent LLM usage: 2 calls, 250 in / 50 out tokens" in format_report(report)
+    assert to_dict(report)["agent"] == {
+        "llm_calls": 2, "input_tokens": 250, "output_tokens": 50}
+
+    # without run_dir (or without a log) the usage is zero and the line is omitted
+    silent = evaluate(env.store)
+    assert silent.agent_llm_calls == 0
+    assert "Agent LLM usage" not in format_report(silent)
     env.close()
 
 

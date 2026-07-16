@@ -25,6 +25,7 @@ _TERMINAL_STATUSES = ("done", "cancelled")
 
 if TYPE_CHECKING:
     from pm.jira.api import JiraApi
+    from pm.npc.behavior import WorkDriver
     from pm.sim.engine import Engine
     from pm.sim.events import Event
     from pm.sim.simulation import Simulation
@@ -50,9 +51,12 @@ def _noop(engine: "Engine", event: "Event") -> None:
     return None
 
 
-def _close_in_review(api: "JiraApi", person_id: str) -> None:
+def _close_in_review(api: "JiraApi", person_id: str, *, trigger: str) -> None:
     """Mark this person's finished-but-unclosed (``in_review``) issues ``done``."""
+    store = api.repo.store
     for issue in api.search(assignee=person_id, status="in_review"):
+        store.log_event(store.get_tick(), actor=person_id, kind="npc.close_review",
+                        payload={"issue_key": issue.id, "trigger": trigger})
         api.transition_issue(issue.id, "done", actor=person_id)
 
 
@@ -68,6 +72,8 @@ def _on_jira_ticket_done(engine: "Engine", event: "Event") -> None:
         return
     issue = ready[0]
     persona = from_person(engine.store.get_person(event.owner_id))
+    engine.store.log_event(engine.clock.now(), actor=event.owner_id,
+                           kind="npc.pickup", payload={"issue_key": issue.id})
     engine.schedule(
         JiraTicketEvent(
             owner_id=event.owner_id,
@@ -84,7 +90,7 @@ def _on_meeting_done(engine: "Engine", event: "Event") -> None:
         return
     api = _jira(engine)
     for pid in event.payload.get("attendees", []):
-        _close_in_review(api, pid)
+        _close_in_review(api, pid, trigger="standup")
 
 
 def _on_slack_send(engine: "Engine", event: "Event") -> None:
@@ -105,11 +111,14 @@ def _on_slack_send(engine: "Engine", event: "Event") -> None:
     api = _jira(engine)
     for person in engine.store.list_people():
         if person.name.lower() in body or person.id.lower() in body:
-            _close_in_review(api, person.id)
+            _close_in_review(api, person.id, trigger="slack")
     if "pick up" in body:
         for key in re.findall(r"\b[a-z]+-\d+\b", body):
             issue = api.repo.get_issue(key.upper())
             if issue is not None and issue.status not in _TERMINAL_STATUSES:
+                engine.store.log_event(
+                    engine.clock.now(), actor=issue.assignee_id or event.owner_id,
+                    kind="npc.priority_bump", payload={"issue_key": issue.id})
                 api.set_priority(issue.id, 0, actor=event.owner_id)
 
 
@@ -148,3 +157,26 @@ def close_reactions_on_tick(sim: "Simulation") -> None:
     for event in sim.store.events_done_at(now):
         if event.type in _CLOSE_EVENTS:
             react(sim.engine, event)
+
+
+def close_and_wake_on_tick(driver: "WorkDriver") -> Callable[["Simulation"], None]:
+    """Build the ``Simulation.run`` hook for a completion-driven week.
+
+    Fires the standup/Slack close reactions for events completed this tick, then —
+    only if any fired — sweeps the :class:`~pm.npc.behavior.WorkDriver`, so a close
+    that unparks ``in_review`` work (unblocking a dependent) dispatches the
+    dependent immediately. Work chaining itself needs no tick hook: it rides the
+    driver's ``on_activity_done`` completion hook.
+    """
+
+    def hook(sim: "Simulation") -> None:
+        now = sim.clock.now()
+        fired = False
+        for event in sim.store.events_done_at(now):
+            if event.type in _CLOSE_EVENTS:
+                react(sim.engine, event)
+                fired = True
+        if fired:
+            driver.sweep(sim.engine)
+
+    return hook

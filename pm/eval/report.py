@@ -18,7 +18,9 @@ rollups over them, so counting all types would double-count).
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
+from pm.agent.log import read_agent_logs
 from pm.db.store import Store
 from pm.exceptions import ConfigurationError
 from pm.jira.format import format_hours
@@ -59,6 +61,10 @@ class EvalReport:
     total_jira_minutes: int
     people: list[PersonReport]
     remaining: list[TaskView]
+    # LLM agent usage, summed from the run's agent.jsonl (zero when absent).
+    agent_llm_calls: int = 0
+    agent_input_tokens: int = 0
+    agent_output_tokens: int = 0
 
 
 def _resolve_project_id(store: Store, project_id: str | None) -> str:
@@ -79,8 +85,14 @@ def _resolve_project_id(store: Store, project_id: str | None) -> str:
     return ids[0]
 
 
-def evaluate(store: Store, project_id: str | None = None) -> EvalReport:
-    """Evaluate ``project_id`` (or the run's only project) from ``store``."""
+def evaluate(
+    store: Store, project_id: str | None = None, *, run_dir: Path | None = None
+) -> EvalReport:
+    """Evaluate ``project_id`` (or the run's only project) from ``store``.
+
+    ``run_dir`` (the ``runs/<scenario>/`` folder) additionally sums the LLM
+    agent's token usage from its ``agent-<model>.jsonl`` logs, when any exist.
+    """
     pid = _resolve_project_id(store, project_id)
     project = store.get_project(pid)
     assert project is not None  # _resolve_project_id verified existence
@@ -108,6 +120,11 @@ def evaluate(store: Store, project_id: str | None = None) -> EvalReport:
                 person_id=view.owner_id, name=person.name if person else view.owner_id)
         (report.done if view.status == "done" else report.remaining).append(view)
 
+    llm_calls = []
+    if run_dir is not None:
+        llm_calls = [e for e in read_agent_logs(run_dir)
+                     if e.get("kind") == "llm_call"]
+
     return EvalReport(
         project_id=pid,
         project_name=project.name,
@@ -119,6 +136,9 @@ def evaluate(store: Store, project_id: str | None = None) -> EvalReport:
         total_jira_minutes=sum(i.estimate_minutes for i in issues),
         people=sorted(people.values(), key=lambda p: p.person_id),
         remaining=remaining,
+        agent_llm_calls=len(llm_calls),
+        agent_input_tokens=sum(e.get("input_tokens", 0) for e in llm_calls),
+        agent_output_tokens=sum(e.get("output_tokens", 0) for e in llm_calls),
     )
 
 
@@ -131,8 +151,13 @@ def format_report(report: EvalReport) -> str:
         f"(source: {report.source})",
         f"Jira tickets closed: {format_hours(report.closed_jira_minutes)} of "
         f"{format_hours(report.total_jira_minutes)}",
-        "By person:",
     ]
+    if report.agent_llm_calls:
+        lines.append(
+            f"Agent LLM usage: {report.agent_llm_calls} calls, "
+            f"{report.agent_input_tokens} in / {report.agent_output_tokens} out tokens"
+        )
+    lines.append("By person:")
     for p in report.people:
         lines.append(f"  {p.name:<8} {len(p.done)} done, {len(p.remaining)} remaining")
         for t in p.done:
@@ -159,6 +184,11 @@ def to_dict(report: EvalReport) -> dict[str, object]:
         "goal_accomplished": report.goal_accomplished,
         "closed_jira_minutes": report.closed_jira_minutes,
         "total_jira_minutes": report.total_jira_minutes,
+        "agent": {
+            "llm_calls": report.agent_llm_calls,
+            "input_tokens": report.agent_input_tokens,
+            "output_tokens": report.agent_output_tokens,
+        },
         "people": [
             {
                 "person_id": p.person_id,

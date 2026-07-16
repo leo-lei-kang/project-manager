@@ -1,10 +1,10 @@
 """The "Single Engineer, Free Spirit" scenario — the overloaded solo board, unmanaged.
 
-Same board as :mod:`pm.scenarios.test_single_engineer` (12 tasks, 7 high-priority
-launch blockers + 5 backlog, 60 h in a 40-h week), but alice works as a
+Same board as :mod:`pm.scenarios.test_single_engineer` (the six 40-h transcripts
+project tasks plus 20 h of backlog), but alice works as a
 :data:`~pm.npc.persona.FREE_SPIRIT` — picking at random, ignoring priority — and no one
-intervenes. Eight tasks still fit the week, but some launch blockers are left over at
-Fri 17:00 — the baseline a steering PM would have to rescue.
+intervenes. Backlog work displaces project tasks, so part of the project is left
+over at Fri 17:00: the baseline a steering PM would have to rescue.
 """
 
 from __future__ import annotations
@@ -39,4 +39,4 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
 if __name__ == "__main__":
     build()
     print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (a free-spirit engineer, "
-          "unmanaged — some launch blockers are left over).")
+          "unmanaged — backlog picks leave part of the project over).")

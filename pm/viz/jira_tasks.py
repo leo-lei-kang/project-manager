@@ -21,6 +21,7 @@ from __future__ import annotations
 import heapq
 import html
 import json
+import sqlite3
 from pathlib import Path
 
 from pm.db.store import Store
@@ -112,7 +113,36 @@ def work_spans(store: Store) -> dict[str, tuple[int, int]]:
         if key in spans:
             start, end = min(start, spans[key][0]), max(end, spans[key][1])
         spans[key] = (start, end)
+    for key, start, end in _activity_work_rows(store):
+        if key in spans:
+            start, end = min(start, spans[key][0]), max(end, spans[key][1])
+        spans[key] = (start, end)
     return spans
+
+
+def _activity_work_rows(store: Store) -> list[tuple[str, int, int]]:
+    """``(issue key, start, end)`` from ``jira_work`` activity rows.
+
+    Completion-driven runs carry NPC work in the ``activity`` table; the span
+    runs from dispatch to completion (interruptions included). Legacy run
+    databases may lack the table or its ``done_tick`` column — treat as empty.
+    """
+    try:
+        rows = store.db.query_all(
+            "SELECT created_tick, done_tick, duration_needed, params_json FROM activity "
+            "WHERE kind = 'jira_work' AND state != 'cancelled' ORDER BY id"
+        )
+    except sqlite3.OperationalError:
+        return []
+    out = []
+    for r in rows:
+        key = json.loads(r["params_json"]).get("issue_key")
+        if not key:
+            continue
+        end = r["done_tick"] if r["done_tick"] is not None else (
+            r["created_tick"] + r["duration_needed"])
+        out.append((key, r["created_tick"], end))
+    return out
 
 
 def _px(ticks: float) -> str:

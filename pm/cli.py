@@ -1,11 +1,14 @@
 """Operator CLI.
 
-``sim`` builds a scenario run and drives its work week; ``eval`` grades the
-outcome; ``viz`` renders the run's board and calendars to static HTML. Every
-command takes a single ``--scenario`` whose name is the run id and output folder —
-all results for a scenario live under ``runs/<scenario>/`` (``world.db``,
-``seed.db``, ``eval.json``, ``calendars.html``, ``jira_tasks.html``). Personas are
-baked into each scenario, so there is no runtime persona flag.
+``sim`` builds a scenario run and drives its work week (narrating the log to
+the console as it goes; silence with ``--no-verbose``); ``eval`` grades the
+outcome; ``viz`` renders the run's board and calendars to static HTML; ``log``
+prints a finished run's sim-time timeline. Every command takes a single
+``--scenario`` whose name is the run id and output folder — all results for a
+scenario live under ``runs/<scenario>/`` (``world.db``, ``seed.db``,
+``eval.json``, ``calendars.html``, ``jira_tasks.html``, and — for scenarios
+with an LLM agent — ``agent-<model>.jsonl`` + ``agent_activity.html``).
+Personas are baked into each scenario, so there is no runtime persona flag.
 """
 
 from __future__ import annotations
@@ -31,8 +34,9 @@ from pm.scenarios import (
     team_with_jira,
     team_mixed_persona,
 )
+from pm.sim.narrate import format_entry
 from pm.sim.simulation import Simulation
-from pm.viz import write_calendars, write_jira_tasks
+from pm.viz import write_agent_activity, write_calendars, write_jira_tasks
 
 # Scenarios `pm sim` can build and drive. Each module exposes build/MEMBERS/PROJECT_ID,
 # bakes in its personas, and may expose agent_review_hook(env) to add a PM review hook.
@@ -67,6 +71,10 @@ def sim(
         help=f"Scenario to build and run ({' | '.join(SCENARIOS)}); also the run id "
              "and output folder runs/<scenario>/.",
     ),
+    verbose: bool = typer.Option(
+        True, "--verbose/--no-verbose",
+        help="Stream the simulation log to the console as the week runs.",
+    ),
 ) -> None:
     """Run a scenario's simulated work week (Mon 09:00 -> Fri 17:00).
 
@@ -85,6 +93,8 @@ def sim(
         typer.echo(f"Built scenario '{scenario}' at {path.parent}/")
     else:
         env = Env.load(scenario)
+    if verbose:
+        env.store.on_log = lambda e: typer.echo(format_entry(e))
 
     simulation = Simulation(env)
     if simulation.is_over():
@@ -120,7 +130,7 @@ def eval_cmd(
 
     store = Store.open(str(path))
     try:
-        report = evaluate(store, project_id=project)
+        report = evaluate(store, project_id=project, run_dir=path.parent)
     except ConfigurationError as e:
         raise typer.BadParameter(f"{e.message} {e.details}", param_hint="--project") from e
     finally:
@@ -144,6 +154,27 @@ def viz(
         raise typer.BadParameter(
             f"{e.message}; create the run with `pm sim --scenario {scenario}`.",
             param_hint="--scenario") from e
+    activity = write_agent_activity(scenario)
+    typer.echo(str(activity.resolve()) if activity is not None
+               else "no agent log; skipped agent_activity.html")
+
+
+@app.command("log")
+def log_cmd(
+    scenario: str = typer.Option(..., "--scenario", help="Scenario run whose log to print."),
+) -> None:
+    """Print the run's sim-time timeline (the event_log) as narration lines."""
+    path = _db_path(scenario)
+    if not path.exists():
+        raise typer.BadParameter(
+            f"no run at {path}; create it with `pm sim --scenario {scenario}`.",
+            param_hint="--scenario")
+    store = Store.open(str(path))
+    try:
+        for entry in store.read_log():
+            typer.echo(format_entry(entry))
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":

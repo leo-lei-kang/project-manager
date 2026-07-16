@@ -15,6 +15,8 @@
     --db-bg:#fef3c7;  --db-fg:#92400e;  --db-bd:#fcd34d;
     --drv-bg:#e2e8f0; --drv-fg:#334155; --drv-bd:#cbd5e1;
     --jira-bg:#ffedd5; --jira-fg:#c2410c; --jira-bd:#fdba74;
+    --evt-bg:#ccfbf1; --evt-fg:#115e59; --evt-bd:#5eead4;
+    --act-bg:#ffe4e6; --act-fg:#9f1239; --act-bd:#fda4af;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -26,6 +28,8 @@
       --db-bg:#3b2405;  --db-fg:#fcd34d;  --db-bd:#92400e;
       --drv-bg:#1e293b; --drv-fg:#cbd5e1; --drv-bd:#334155;
       --jira-bg:#431407; --jira-fg:#fdba74; --jira-bd:#c2410c;
+      --evt-bg:#042f2e; --evt-fg:#5eead4; --evt-bd:#0f766e;
+      --act-bg:#4c0519; --act-fg:#fda4af; --act-bd:#9f1239;
     }
   }
   * { box-sizing: border-box; }
@@ -65,6 +69,8 @@
   .chip.db    { background: var(--db-bg);    color: var(--db-fg);    border-color: var(--db-bd); }
   .chip.drv   { background: var(--drv-bg);   color: var(--drv-fg);   border-color: var(--drv-bd); }
   .chip.jira  { background: var(--jira-bg);  color: var(--jira-fg);  border-color: var(--jira-bd); }
+  .chip.evt   { background: var(--evt-bg);   color: var(--evt-fg);   border-color: var(--evt-bd); }
+  .chip.act   { background: var(--act-bg);   color: var(--act-fg);   border-color: var(--act-bd); }
   nav.toc {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
     padding: .9rem 1.1rem; margin: 1.25rem 0 0;
@@ -105,6 +111,8 @@
   svg .bx-agent { fill: var(--agent-bg); stroke: var(--agent-bd); }
   svg .bx-db    { fill: var(--db-bg);    stroke: var(--db-bd); }
   svg .bx-drv   { fill: var(--drv-bg);   stroke: var(--drv-bd); }
+  svg .bx-evt   { fill: var(--evt-bg);   stroke: var(--evt-bd); }
+  svg .bx-act   { fill: var(--act-bg);   stroke: var(--act-bd); }
   svg .bx-out   { fill: none; stroke: var(--sim-bd); stroke-dasharray: 4 3; }
   svg rect { stroke-width: 1.4; rx: 8; }
   svg .edge { stroke: var(--muted); stroke-width: 1.4; fill: none; }
@@ -129,6 +137,7 @@
       <li><a href="#events">Events</a></li>
       <li><a href="#simwork">Sim work: sync vs async</a></li>
       <li><a href="#activities">Activities</a></li>
+      <li><a href="#triggers">Events × actions × activities</a></li>
       <li><a href="#npcs">NPCs &amp; personas</a></li>
       <li><a href="#agent">The PM agent ↔ the sim</a></li>
       <li><a href="#persistence">Persistence &amp; scenarios</a></li>
@@ -169,7 +178,7 @@
     <tr><td><span class="path">pm/scenarios/</span></td><td><span class="chip drv">driver</span></td>
         <td>Scenario modules (seeded casts + boards + meetings), the shared <code>runner.drive</code> loop, the <code>project_board.py</code> seeder, and a procedural generator.</td></tr>
     <tr><td><span class="path">pm/transcript/</span></td><td><span class="chip drv">driver</span></td>
-        <td><code>project.md</code> — the parsed project brief + task breakdown — plus authored transcripts (<code>standup-*.md</code>, <code>no-jira-*.md</code>) surfaced through meetings.</td></tr>
+        <td><code>project_{team,two_engineers,single_engineer}.md</code> — the parsed project brief + board-sized task breakdowns — plus authored transcripts (<code>no-jira-*.md</code>) surfaced through meetings.</td></tr>
     <tr><td><span class="path">pm/env/</span></td><td><span class="chip drv">driver</span></td>
         <td><code>Env</code> facade — owns the Store and the Engine for one run.</td></tr>
     <tr><td><span class="path">pm/eval/</span>, <span class="path">pm/viz/</span></td><td><span class="chip drv">driver</span></td>
@@ -204,7 +213,7 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
 
   <rect class="bx-drv" x="396" y="18" width="220" height="46"/>
   <text class="t" x="506" y="38" text-anchor="middle">runner.drive(env, module)</text>
-  <text class="s" x="506" y="54" text-anchor="middle">compose(PM hook, pickup hook)</text>
+  <text class="s" x="506" y="54" text-anchor="middle">kickoff sweep · compose(PM hook, closes)</text>
 
   <line class="edge" x1="136" y1="41" x2="164" y2="41" marker-end="url(#arr)"/>
   <line class="edge" x1="366" y1="41" x2="394" y2="41" marker-end="url(#arr)"/>
@@ -231,12 +240,12 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
 
   <!-- Row C: on_tick hooks -->
   <rect class="bx-npc" x="16" y="186" width="210" height="64"/>
-  <text class="t" x="121" y="206" text-anchor="middle">NPC behavior hooks</text>
-  <text class="s" x="121" y="222" text-anchor="middle">npc/behavior.py — pick next</text>
-  <text class="s" x="121" y="237" text-anchor="middle">ready issue per persona</text>
+  <text class="t" x="121" y="206" text-anchor="middle">WorkDriver — npc/behavior.py</text>
+  <text class="s" x="121" y="222" text-anchor="middle">kickoff + completion sweeps:</text>
+  <text class="s" x="121" y="237" text-anchor="middle">next ready issue per persona</text>
 
   <line class="edge" x1="240" y1="158" x2="150" y2="184" marker-end="url(#arr)"/>
-  <text class="el" x="180" y="172">on_tick (every minute)</text>
+  <text class="el" x="180" y="172">on_tick: closes → re-sweep</text>
 
   <!-- Row D: Engine -->
   <rect class="bx-out" x="16" y="290" width="660" height="180"/>
@@ -257,12 +266,12 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <text class="s" x="591" y="360" text-anchor="middle">async: +1 min — start</text>
   <text class="s" x="591" y="375" text-anchor="middle">due, complete finished</text>
 
-  <rect class="bx-sim" x="352" y="402" width="308" height="52"/>
+  <rect class="bx-act" x="352" y="402" width="308" height="52"/>
   <text class="t" x="506" y="422" text-anchor="middle">ActivityManager — sim/activity.py</text>
-  <text class="s" x="506" y="438" text-anchor="middle">one started per attender · interrupt/resume · ticked each step</text>
+  <text class="s" x="506" y="438" text-anchor="middle">one started per attender · interrupt/resume · on_activity_done → WorkDriver</text>
 
   <line class="edge" x1="121" y1="250" x2="140" y2="324" marker-end="url(#arr)"/>
-  <text class="el" x="150" y="278">sim.schedule(Event)</text>
+  <text class="el" x="150" y="278">request(jira_work) · schedule(Event)</text>
   <line class="edge" x1="450" y1="158" x2="580" y2="324" marker-end="url(#arr)"/>
   <text class="el" x="500" y="240">step() every minute</text>
   <line class="edge" x1="700" y1="222" x2="504" y2="345" marker-end="url(#arr)"/>
@@ -270,7 +279,7 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <line class="edge" x1="591" y1="390" x2="591" y2="400" marker-end="url(#arr)"/>
 
   <!-- Row E: events + reactions -->
-  <rect class="bx-sim" x="16" y="498" width="430" height="64"/>
+  <rect class="bx-evt" x="16" y="498" width="430" height="64"/>
   <text class="t" x="231" y="518" text-anchor="middle">Event effects — sim/events.py</text>
   <text class="s" x="231" y="534" text-anchor="middle">_on_start / _on_done → messages · emails · meetings</text>
   <text class="s" x="231" y="549" text-anchor="middle">transcripts · informal tasks · Jira transitions (via JiraApi)</text>
@@ -312,6 +321,8 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
 
 <div class="legend">
   <span class="chip sim">sim core</span>
+  <span class="chip evt">event</span>
+  <span class="chip act">activity</span>
   <span class="chip npc">npc</span>
   <span class="chip agent">agent</span>
   <span class="chip db">persistence</span>
@@ -380,11 +391,11 @@ on that row, not a second record). The engine rehydrates the right subclass from
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
     </marker>
   </defs>
-  <rect class="bx-drv" x="40" y="34" width="140" height="44"/>
+  <rect class="bx-evt" x="40" y="34" width="140" height="44"/>
   <text class="t" x="110" y="61" text-anchor="middle">pending</text>
-  <rect class="bx-sim" x="310" y="34" width="140" height="44"/>
+  <rect class="bx-evt" x="310" y="34" width="140" height="44"/>
   <text class="t" x="380" y="61" text-anchor="middle">active</text>
-  <rect class="bx-npc" x="580" y="34" width="140" height="44"/>
+  <rect class="bx-evt" x="580" y="34" width="140" height="44"/>
   <text class="t" x="650" y="61" text-anchor="middle">done</text>
   <line class="edge" x1="180" y1="56" x2="308" y2="56" marker-end="url(#arr2)"/>
   <text class="el" x="244" y="30" text-anchor="middle">start(engine) at start_tick</text>
@@ -428,23 +439,30 @@ on that row, not a second record). The engine rehydrates the right subclass from
         <td>durative — the issue's <code>estimate_minutes</code></td><td>20</td>
         <td>transition <code>todo | blocked → in_progress</code></td>
         <td>log remaining work, then → <code>done</code> (if <code>auto_close</code>, the default)
-            or → <code>in_review</code> (a <em>when_asked</em> persona parks it)</td></tr>
+            or → <code>in_review</code> (a <em>when_asked</em> persona parks it).
+            <span class="s">Generator path — scenario work runs as <code>jira_work</code>
+            activities with the same transitions.</span></td></tr>
     <tr><td><code>meeting</code></td><td><code>MeetingEvent</code><br>
         <span class="s">kind ∈ standup | adhoc | 1on1 | team</span></td>
         <td>durative</td><td>100</td>
-        <td><code>store.add_meeting</code> — the meeting begins</td>
+        <td><code>store.add_meeting</code>, plus an <code>in_meeting</code> bridge activity
+            (priority 100, no effects) that occupies the attendees — interrupting any
+            activity work they are in</td>
         <td><code>store.add_transcript</code> — <em>every</em> meeting leaves a transcript at its end tick
             (empty body by default); payload <code>tasks</code> are upserted into the informal
             <code>task</code> table</td></tr>
     <tr><td><code>ooo</code></td><td><code>OOOEvent</code></td>
         <td>durative (hours → days)</td><td>200</td>
-        <td>no-op</td><td>no-op — the <em>effect</em> is the calendar occupancy itself</td></tr>
+        <td>requests an <code>ooo</code> bridge activity (priority 200, no effects) —
+            the person's activity work is preempted for the span</td>
+        <td>no-op — the calendar occupancy and the bridge are the effect</td></tr>
   </tbody>
 </table>
 
-<p><strong>Who schedules events?</strong> NPC behavior hooks (ticket work + status messages), scenario
-seeding (meetings, boards), the procedural generator's builders (one builder per event type), reactions
-(follow-up work), and the agent indirectly (its Slack message triggers reactions that schedule).</p>
+<p><strong>Who schedules events?</strong> The <code>WorkDriver</code> (status <code>SlackSendEvent</code>s —
+its ticket work is an <em>activity</em>), scenario seeding (meetings, boards), the procedural generator's
+builders (one builder per event type), reactions (follow-up work), and the agent — whose
+<code>send_slack</code> tool schedules a <code>SlackSendEvent</code> directly.</p>
 
 <h3>Scheduler &amp; calendar (contention)</h3>
 <div class="cols">
@@ -496,10 +514,12 @@ single clock. No background threads exist anywhere.</p>
     <h4>Asynchronous — <code>step()</code></h4>
     <p>Advance exactly one simulated minute:</p>
     <ul>
-      <li><code>start()</code> every pending event whose <code>start_tick</code> has arrived,</li>
+      <li><code>activities.tick(now)</code> first — work ending at this minute completes
+          (firing <code>on_activity_done</code>) before anything that begins at it, so a
+          zero-slack schedule strands nothing at meeting boundaries,</li>
+      <li>then <code>start()</code> every pending event whose <code>start_tick</code> has arrived,</li>
       <li>then <code>done()</code> every active event whose duration has elapsed
-          (freeing its <code>occupancy</code> blocks),</li>
-      <li>then <code>activities.tick(now)</code> for the durative-activity system.</li>
+          (freeing its <code>occupancy</code> blocks).</li>
     </ul>
     <p><code>advance(minutes)</code> just loops <code>step()</code>; an instantaneous event starts
     <em>and</em> finishes within one tick.</p>
@@ -518,12 +538,13 @@ costs are clamped to the remaining week.</p>
 <!-- ================================================================== -->
 <h2 id="activities">6. Activities <span class="path">pm/sim/activity.py</span></h2>
 
-<p>An <strong>Activity</strong> is a second, self-contained durative-work system that coexists with Events.
-Where an Event is a scheduled world occurrence (a calendar item with a fixed window), an Activity is a
-thing one or more NPCs are <em>doing</em> right now — it burns down minute by minute, can be interrupted
-by something more important, and resumes with its remaining time frozen. It owns its own
-<code>activity</code> table (created idempotently by <code>ActivityManager</code>) and never references a
-Task or Jira issue; effects are kind-specific side effects on start/done.</p>
+<p>An <strong>Activity</strong> is the durative-work system NPCs actually run on. Where an Event is a
+scheduled world occurrence (a calendar item with a fixed window), an Activity is a thing one or more
+NPCs are <em>doing</em> right now — it burns down minute by minute, can be interrupted by something more
+important, and resumes with its remaining time frozen. It owns its own <code>activity</code> table
+(created idempotently by <code>ActivityManager</code>); effects are kind-specific side effects on
+start/done — <code>jira_work</code> tracks the Jira issue named in its <code>params</code> and applies
+the same transitions <code>JiraTicketEvent</code> does.</p>
 
 <figure>
 <svg viewBox="0 0 760 178" role="img" aria-label="Activity state machine">
@@ -532,13 +553,13 @@ Task or Jira issue; effects are kind-specific side effects on start/done.</p>
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
     </marker>
   </defs>
-  <rect class="bx-drv" x="40" y="46" width="150" height="44"/>
+  <rect class="bx-act" x="40" y="46" width="150" height="44"/>
   <text class="t" x="115" y="73" text-anchor="middle">backlogged</text>
-  <rect class="bx-sim" x="300" y="46" width="150" height="44"/>
+  <rect class="bx-act" x="300" y="46" width="150" height="44"/>
   <text class="t" x="375" y="73" text-anchor="middle">started</text>
-  <rect class="bx-npc" x="560" y="46" width="150" height="44"/>
+  <rect class="bx-act" x="560" y="46" width="150" height="44"/>
   <text class="t" x="635" y="73" text-anchor="middle">done</text>
-  <rect class="bx-drv" x="300" y="128" width="150" height="38"/>
+  <rect class="bx-act" x="300" y="128" width="150" height="38"/>
   <text class="s" x="375" y="151" text-anchor="middle">interrupted</text>
   <line class="edge" x1="190" y1="68" x2="298" y2="68" marker-end="url(#arr3)"/>
   <text class="el" x="244" y="42" text-anchor="middle">dispatch (by priority)</text>
@@ -578,7 +599,105 @@ knob besides the two effect hooks — adding a kind is one registration in <code
 idle until something calls <code>activities.request(...)</code>.</div>
 
 <!-- ================================================================== -->
-<h2 id="npcs">7. NPCs &amp; personas <span class="path">pm/npc/</span></h2>
+<h2 id="triggers">7. How events, actions &amp; activities trigger each other</h2>
+
+<p>Three moving parts share the single clock, and each fires the others:</p>
+<ul>
+  <li><strong>Action → events.</strong> An <em>action</em> (<code>Engine.perform_action</code>) runs its
+      effect at the <em>current</em> tick, then <code>advance(cost)</code> loops <code>step()</code> —
+      the cost window is exactly when pending events start and active ones finish. The agent's
+      <code>send_slack</code> and every <code>JiraApi</code> mutation take this path.</li>
+  <li><strong>Tick → events → reactions → events.</strong> NPC pickup hooks
+      <code>schedule(Event)</code> work every minute; when <code>step()</code> completes an event,
+      <code>reactions.react</code> fires and schedules follow-ups — events beget events, with NPCs as
+      the relay.</li>
+  <li><strong>Tick → activities.</strong> The same <code>step()</code> ends with
+      <code>ActivityManager.tick</code>: started activities burn down a minute, finished ones apply
+      their effect, preempted ones sit <code>interrupted</code> until re-dispatch. An activity belongs
+      to its NPC <em>attenders</em> (≥ 1) and occupies them — one <code>started</code> activity per NPC
+      is exactly what interrupt/resume arbitrates. Activities never schedule events.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 960 340" role="img" aria-label="Event, action and activity trigger graph">
+  <defs>
+    <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+
+  <!-- row 1: the action path -->
+  <rect class="bx-agent" x="20" y="20" width="210" height="52"/>
+  <text class="t" x="125" y="40" text-anchor="middle">LLM PM agent</text>
+  <text class="s" x="125" y="58" text-anchor="middle">send_slack · JiraApi mutations</text>
+
+  <rect class="bx-drv" x="290" y="20" width="250" height="52"/>
+  <text class="t" x="415" y="40" text-anchor="middle">Action — perform_action</text>
+  <text class="s" x="415" y="58" text-anchor="middle">effect now · log · advance(cost)</text>
+
+  <rect class="bx-sim" x="690" y="20" width="200" height="52"/>
+  <text class="t" x="790" y="40" text-anchor="middle">Engine.step()</text>
+  <text class="s" x="790" y="58" text-anchor="middle">one simulated minute</text>
+
+  <line class="edge" x1="230" y1="46" x2="288" y2="46" marker-end="url(#arr5)"/>
+  <line class="edge" x1="540" y1="46" x2="688" y2="46" marker-end="url(#arr5)"/>
+  <text class="el" x="614" y="38" text-anchor="middle">advance(cost) = cost × step()</text>
+
+  <!-- row 2: the three durative parts -->
+  <rect class="bx-npc" x="20" y="150" width="230" height="64"/>
+  <text class="t" x="135" y="172" text-anchor="middle">NPC hooks &amp; reactions</text>
+  <text class="s" x="135" y="190" text-anchor="middle">behavior.py · reactions.py</text>
+  <text class="s" x="135" y="204" text-anchor="middle">pick up each tick · react on done</text>
+
+  <rect class="bx-evt" x="370" y="150" width="250" height="64"/>
+  <text class="t" x="495" y="172" text-anchor="middle">Event</text>
+  <text class="s" x="495" y="190" text-anchor="middle">pending → active → done</text>
+  <text class="s" x="495" y="204" text-anchor="middle">one row in the event table</text>
+
+  <rect class="bx-act" x="710" y="150" width="230" height="64"/>
+  <text class="t" x="825" y="172" text-anchor="middle">Activity</text>
+  <text class="s" x="825" y="190" text-anchor="middle">started ↔ interrupted (priority)</text>
+  <text class="s" x="825" y="204" text-anchor="middle">burns down 1 min per tick</text>
+
+  <line class="edge" x1="250" y1="166" x2="368" y2="166" marker-end="url(#arr5)"/>
+  <text class="el" x="309" y="158" text-anchor="middle">schedule(Event)</text>
+  <line class="edge" x1="368" y1="198" x2="252" y2="198" marker-end="url(#arr5)"/>
+  <text class="el" x="309" y="226" text-anchor="middle">done → reactions.react</text>
+
+  <line class="edge" x1="760" y1="72" x2="560" y2="148" marker-end="url(#arr5)"/>
+  <text class="el" x="672" y="106" text-anchor="middle">start due · complete finished</text>
+  <line class="edge" x1="830" y1="72" x2="845" y2="148" marker-end="url(#arr5)"/>
+  <text class="el" x="852" y="106">tick()</text>
+
+  <!-- row 3: world writes -->
+  <rect class="bx-db" x="230" y="272" width="520" height="46"/>
+  <text class="t" x="490" y="291" text-anchor="middle">world writes (single writer: Store)</text>
+  <text class="s" x="490" y="308" text-anchor="middle">messages · meetings · transcripts · informal tasks · Jira transitions</text>
+
+  <line class="edge" x1="495" y1="214" x2="465" y2="270" marker-end="url(#arr5)"/>
+  <text class="el" x="418" y="260" text-anchor="end">_on_start / _on_done</text>
+  <line class="edge" x1="825" y1="214" x2="650" y2="270" marker-end="url(#arr5)"/>
+  <text class="el" x="762" y="260">on_start / on_done</text>
+
+  <!-- NPC ↔ activity ownership -->
+  <path class="edge dash" d="M 60 214 L 60 238 L 900 238 L 900 216" marker-end="url(#arr5)"/>
+  <text class="el" x="600" y="232" text-anchor="middle">attenders — one started activity per NPC</text>
+</svg>
+<figcaption>The cycle to notice is the green↔teal loop: NPC hooks schedule events, finished events wake
+NPC reactions, and reactions schedule the next events. Agent actions don't touch that loop directly —
+they buy the sim-time in which it runs. Activities hang off the same <code>step()</code> but stay idle
+in the current catalog (nothing calls <code>activities.request</code>).</figcaption>
+</figure>
+
+<div class="legend">
+  <span class="chip agent">LLM agent</span>
+  <span class="chip evt">event</span>
+  <span class="chip act">activity</span>
+  <span class="chip npc">npc</span>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="npcs">8. NPCs &amp; personas <span class="path">pm/npc/</span></h2>
 
 <h3>The cast — <span class="path">pm/npc/cast.py</span></h3>
 <p>A <code>CastMember</code> carries identity (<code>id, name, role, discipline</code>), a
@@ -662,7 +781,7 @@ Scenarios swap them per member with <code>with_personas(cast, …)</code>.</p>
 </div>
 
 <!-- ================================================================== -->
-<h2 id="agent">8. The PM agent ↔ the sim <span class="path">pm/agent/</span></h2>
+<h2 id="agent">9. The PM agent ↔ the sim <span class="path">pm/agent/</span></h2>
 
 <p>The PM cannot touch the board directly. Its <strong>only mutation is Slack</strong> — and the world
 already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agent exactly two levers:</p>
@@ -768,7 +887,7 @@ Slack reactions turn it into board effects.</figcaption>
 </table>
 
 <!-- ================================================================== -->
-<h2 id="persistence">9. Persistence &amp; scenarios</h2>
+<h2 id="persistence">10. Persistence &amp; scenarios</h2>
 
 <h3>Store &amp; schema — <span class="path">pm/db/</span></h3>
 <p><code>Database</code> is the only module touching sqlite3 (Row factory, foreign keys ON, WAL,
@@ -806,12 +925,15 @@ on the last tick.</p>
   <thead><tr><th>Scenario family</th><th>Setup</th><th>What it demonstrates</th></tr></thead>
   <tbody>
     <tr><td><code>test_single_engineer*</code></td>
-        <td>alice, a 60-hour board in a 40-hour week (7 launch blockers + 5 backlog stories) — a triage game where exactly 8 tasks can ship</td>
-        <td>PERFECT ships the blockers; FREE_SPIRIT puts them at risk; <code>_with_agent</code>
-            shows visibility-only posting steers nothing.</td></tr>
+        <td>alice alone: the 40-hour "Meeting Transcripts v1" project
+            (<span class="path">project_single_engineer.md</span>, priority 1) + 20 hours of backlog —
+            a 60-hour board where triage decides whether the project ships</td>
+        <td>PERFECT ships the whole project and nothing else; FREE_SPIRIT lets backlog picks
+            displace project tasks; <code>_with_agent</code> adds the LLM PM reviewing the board.</td></tr>
     <tr><td><code>test_two_engineers*</code></td>
-        <td>two engineers with cross-dependencies (plus a <code>_mixed</code> personas
-            variant)</td>
+        <td>two engineers splitting the same project
+            (<span class="path">project_two_engineers.md</span>) with cross-dependencies (plus a
+            <code>_mixed</code> personas variant)</td>
         <td>Closing in_review work unblocks a partner — the PM's close lever matters.</td></tr>
     <tr><td><code>team_with_jira</code> / <code>team_mixed_persona</code></td>
         <td>6-person cast, 66 pre-assigned tasks tiling each calendar between 11 pre-booked meetings;
@@ -821,7 +943,7 @@ on the last tick.</p>
             the PM can act on, surfaced via <code>read_transcripts</code>).</td></tr>
     <tr><td><code>team_no_jira</code> · <code>team_partial_jira</code></td>
         <td>Full team; the “Meeting Transcripts v1” plan (6 tasks, DRIs, estimates) lives in
-            <span class="path">pm/transcript/project.md</span> and
+            <span class="path">pm/transcript/project_team.md</span> and
             <span class="path">scenarios/project_board.py</span> files only a chosen subset as Jira
             tickets — none vs 3 of 6. The kickoff payload seeds all 6 informal tasks; daily standup
             payloads advance their statuses.</td>

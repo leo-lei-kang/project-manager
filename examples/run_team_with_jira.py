@@ -24,7 +24,7 @@ from collections import Counter
 
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
+from pm.npc.behavior import WorkDriver
 from pm.scenarios import team_with_jira
 from pm.sim.clock import MINUTES_PER_WORKDAY, WEEKDAYS, WORKDAYS, format_tick
 from pm.sim.simulation import Simulation
@@ -49,13 +49,14 @@ def main() -> None:
     api = JiraApi(JiraRepository(env.store), env.engine)
     sim = Simulation(env)
 
-    pickup = assignee_pickup_hook(api, team_with_jira.MEMBERS, team_with_jira.PROJECT_ID)
+    driver = WorkDriver(api, team_with_jira.MEMBERS, team_with_jira.PROJECT_ID)
+    env.engine.activities.on_activity_done = driver.on_activity_done
+    driver.sweep(env.engine)  # kickoff: everyone picks their first issue
 
     print(f"Simulating the tight week, starting {sim.now_label()} "
           f"({env.scheduler.pending_count()} events queued)\n")
 
     def on_tick(s: Simulation) -> None:
-        pickup(s)  # engineers pick up their next ready issue, in priority order
         now = s.clock.now()
         if now % MINUTES_PER_WORKDAY == 0 and now > 0:  # a full day just closed
             report_day(now // MINUTES_PER_WORKDAY - 1, s.store, api)
@@ -64,7 +65,7 @@ def main() -> None:
     report_day(WORKDAYS - 1, env.store, api)  # Friday closes after the loop exits
 
     last_done = env.store.db.query_one(
-        "SELECT MAX(done_tick) AS t FROM event WHERE type = 'jira_ticket'")["t"]
+        "SELECT MAX(done_tick) AS t FROM activity WHERE kind = 'jira_work'")["t"]
     print(f"\nReached {sim.now_label()} (tick {summary.final_tick}); "
           f"{summary.events_fired} event transitions fired.")
     print(f"Last task completed at tick {last_done} of 2400 — the week is used to the minute.")

@@ -12,13 +12,11 @@ import pytest
 from pm.eval import evaluate
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.cast import CAST, with_personas
 from pm.npc.persona import FREE_SPIRIT, HEADS_DOWN, PERFECT
 from pm.npc.reactions import react
-from pm.scenarios import test_two_engineers
+from pm.scenarios import runner, test_two_engineers
 from pm.sim.events import SlackSendEvent
-from pm.sim.simulation import Simulation
 
 MIX = {"alice": FREE_SPIRIT, "clare": HEADS_DOWN}
 
@@ -31,8 +29,7 @@ def _slack(body: str) -> SlackSendEvent:
 def _run(module, personas, tmp_path):
     env = module.build(run_id="run", root=tmp_path, member_persona=personas)
     api = JiraApi(JiraRepository(env.store), env.engine)
-    pickup = assignee_pickup_hook(api, module.MEMBERS, module.PROJECT_ID)
-    Simulation(env).run(on_tick=pickup)
+    runner.drive(env, module)
     return env, api
 
 

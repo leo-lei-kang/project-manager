@@ -1,6 +1,7 @@
 """The "Two Engineers" scenario — two engineers, no meetings, zero slack.
 
-Alice (backend) and Clare (frontend) each carry exactly 40 hours of work: eight
+Alice (backend) and Clare (frontend) split the "Meeting Transcripts v1" project
+(``pm/transcript/project_two_engineers.md``), each carrying exactly 40 hours: eight
 300-minute tasks tiling the 2400-tick week. Half of each engineer's tasks depend
 on the other's — every odd task blocks the partner's next even task, a
 just-in-time handoff at each 300-tick boundary (the blocker's intended
@@ -31,40 +32,25 @@ from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import PERFECT, PRESETS, Persona
+from pm.scenarios.project_board import PROJECT_ID as PROJECT_ID
+from pm.scenarios.project_board import PROJECT_NAME as PROJECT_NAME
 from pm.sim.clock import WEEK_END_TICK
+from pm.transcript import project_tasks
 from pm.world.models import Project
 
 SCENARIO = "test_two_engineers"
-PROJECT_ID = "CAP"
 
 CAST = [c for c in _FULL_CAST if c.id in ("alice", "clare")]  # backend + frontend
 MEMBERS = [c.id for c in CAST]
 
-# Eight tasks x 300 minutes == the full 2400-tick work week, per engineer.
+# Eight tasks x 300 minutes == the full 2400-tick work week, per engineer — the
+# breakdown from project_two_engineers.md, in table order per member.
 # priority == the 1-based ordinal; the intended schedule is ordinal order, task i
 # spanning ticks [(i-1)*300, i*300).
-TASKS: dict[str, list[tuple[str, int]]] = {
-    "alice": [  # backend
-        ("Transcript ingest API", 300),
-        ("Wire caption edits into store", 300),
-        ("Speaker labels endpoint", 300),
-        ("Persist caption style prefs", 300),
-        ("Transcript search endpoint", 300),
-        ("Share-link permissions API", 300),
-        ("Export service (SRT/PDF)", 300),
-        ("Wire viewer analytics into pipeline", 300),
-    ],
-    "clare": [  # frontend
-        ("Caption editor UI", 300),
-        ("Render live transcript stream", 300),
-        ("Caption style settings panel", 300),
-        ("Speaker label badges", 300),
-        ("Share dialog UI", 300),
-        ("Transcript search UI", 300),
-        ("Viewer analytics events", 300),
-        ("Export menu UI", 300),
-    ],
-}
+TASKS: dict[str, list[tuple[str, int]]] = {}
+for _row in project_tasks(board="two_engineers"):
+    TASKS.setdefault(_row["dri_id"], []).append(
+        (_row["title"], int(_row["estimate_minutes"])))
 
 # Dependency edges: ((blocker_member, ordinal), (dependent_member, ordinal)).
 # Every odd task blocks the *other* engineer's next even task, so half of each
@@ -85,7 +71,7 @@ _STORIES: dict[str, str] = {
 def _seed_board(env: Env) -> None:
     """1 epic, 2 per-engineer stories, 16 tasks tiling the week, then the dep edges."""
     env.store.add_project(Project(
-        id=PROJECT_ID, name="Transcript Workspace", deadline_tick=WEEK_END_TICK))
+        id=PROJECT_ID, name=PROJECT_NAME, deadline_tick=WEEK_END_TICK))
     repo = JiraRepository(env.store)
     repo.ensure_schema()
     api = JiraApi(repo, env.engine)

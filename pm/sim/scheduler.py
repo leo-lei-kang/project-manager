@@ -44,6 +44,10 @@ class Scheduler:
         # Resolve calendar contention (a durative event may be shifted here, or may
         # bump others). Instantaneous events reserve nothing and are untouched.
         calendar.reserve(self._store, event, now)
+        # Logged after reserve so start_tick reflects any calendar shift.
+        self._store.log_event(now, actor=event.owner_id, kind="event.scheduled",
+                              payload={"type": event.type.value,
+                                       "start_tick": event.start_tick})
         return event_id
 
     def next_event_tick(self) -> int | None:

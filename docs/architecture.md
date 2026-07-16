@@ -13,7 +13,7 @@ nothing of higher ones):
 env      facade: one handle over a run (owns store + sim kernel)
   ├─ sim    dynamics: clock, scheduler, engine, durative events, calendar, activities
   ├─ jira   Jira-style issue tracker over the Store (its own issue tables)
-  ├─ npc    coworker roster + persona + board-pickup scheduling hooks
+  ├─ npc    coworker roster + persona + the completion-driven WorkDriver
   └─ db     persistence: sqlite connection, schema.sql, the typed Store
         └─ world   domain layer: Pydantic entities (models.py) + read view (resources.py)
 ```
@@ -35,7 +35,10 @@ that crosses 5pm lands the next morning.
 
 The engine advances **one minute at a time**:
 
-- `Engine.step()` bumps the clock by 1 and updates the queue for that minute.
+- `Engine.step()` bumps the clock by 1, then **ticks activities first** (work
+  ending at this minute completes before anything that begins at it — a
+  zero-slack schedule would otherwise strand a minute at every meeting
+  boundary), then starts due events and completes finished ones.
 - `Engine.advance(n)` / `advance_to(tick)` loop `step()`.
 - `Simulation.run(on_tick=…)` (`pm/sim/simulation.py`) drives a whole Mon 09:00 →
   Fri 17:00 week, calling an optional per-minute hook before each step.
@@ -79,10 +82,12 @@ result bundle:
 - `calendars.html`, `jira_tasks.html` — from `viz` (static HTML/SVG, no JS/browser).
 
 `pm/scenarios/runner.py::drive` is the shared driver used by both `pm sim` and the
-catalog test: it composes each scenario's member pickup hook with an optional PM
-review hook (`agent_review_hook`, run first so a same-tick close/directive lands before
-the person it steers picks), runs the week, and fires a final PM close-out. The registered
-scenarios and their verified outcomes are cataloged in
+catalog test. It builds a `WorkDriver`, installs it as the `ActivityManager`'s
+completion hook, sweeps once at kickoff, and runs the week with an `on_tick` that
+carries only the optional PM review hook (`agent_review_hook`, run first so a
+same-tick close/directive lands before anyone picks) and the standup/Slack close
+reactions — then fires a final PM close-out. The registered scenarios and their
+verified outcomes are cataloged in
 [`pm/scenarios/scenarios.md`](../pm/scenarios/scenarios.md).
 
 ## Meetings, transcripts & informal tasks
@@ -105,9 +110,10 @@ handed off, and closed entirely inside meetings without a Jira ticket ever
 being filed.
 
 The `team_*` scenarios are built on that split. The "Meeting Transcripts v1"
-brief and its six-task breakdown (`NOTES-1…6`, each with DRI, status, and
-estimate) live in one parsed source, `pm/transcript/project.md`
-(`pm/transcript/__init__.py::project_tasks`).
+brief ships with three board-sized task breakdowns — `pm/transcript/project_{team,
+two_engineers,single_engineer}.md`, same project and scope, different work tasks —
+parsed by `pm/transcript/__init__.py::project_tasks(board)`. The team breakdown
+(`NOTES-1…6`, each with DRI, status, and estimate) drives the `team_*` scenarios.
 `pm/scenarios/project_board.py::seed_project_board(env, jira_ids=…)` adds the
 project row and files Jira tickets **only for the selected ids** —
 `team_no_jira` files none (the board stays empty all week),
@@ -118,6 +124,71 @@ or healthy while the transcripts and the `task` table hold the real project —
 and `pm eval` (`pm/eval/report.py`) grades "every project task done" from the
 informal table, falling back to the board's leaf `task` issues only when a run
 has no informal tasks (hours stay Jira-sourced).
+
+## Events, actions & activities — how they trigger each other
+
+Three moving parts share the one clock, and each fires the others:
+
+- **Activity done → NPC behavior → next activity or event.** NPC work runs as
+  `jira_work` **activities**; nothing polls. When an activity completes,
+  `ActivityManager` fires its `on_activity_done` hook, where the
+  `WorkDriver` (`pm/npc/behavior.py`) sweeps the roster: every member with
+  nothing in flight picks their next issue per their persona and **requests a
+  new activity** (one completion can unblock anyone, so the sweep covers
+  everyone) — and an `announces_progress` persona also **triggers an event**
+  (a `SlackSendEvent` status post). Interrupted work needs no hook at all:
+  re-dispatch resumes it with its remaining minutes intact. The only other
+  dispatch is the **kickoff** — one sweep at week start.
+- **Action → events.** An action (`Engine.perform_action`) is the synchronous
+  lever: its effect lands at the *current* tick, then `advance(cost)` loops
+  `step()`. The LLM agent's one mutation, `send_slack`, uses its tool to
+  **trigger an event** — the effect schedules a `SlackSendEvent`, which lands
+  through the event pipeline during the cost window (the same path NPC
+  messages take, so world reactions fire for it too).
+- **Event done → reactions.** When `step()` completes an event, the
+  standup/Slack close reactions fire (`reactions.close_and_wake_on_tick`,
+  composed by the runner): a standup ending or a Slack message naming a person
+  closes their `in_review` work, then re-sweeps the driver so newly unblocked
+  dependents dispatch immediately.
+- **Meetings preempt work.** A `MeetingEvent`'s `_on_start` requests an
+  `in_meeting` bridge activity (priority 100, no effects) for its attendees,
+  which interrupts their `jira_work` (40); `OOOEvent` bridges the same way at
+  priority 200. One `started` activity per NPC attender is exactly what
+  interrupt/resume arbitrates.
+
+```mermaid
+flowchart LR
+  pm["LLM PM agent<br>send_slack · JiraApi mutations"]:::agent
+  act["Action — Engine.perform_action<br>effect now · log · advance(cost)"]:::drv
+  step["Engine.step()<br>one simulated minute"]:::drv
+  ev["Event<br>pending → active → done"]:::event
+  npc["NPC behavior — WorkDriver<br>kickoff + completion sweeps · reactions.py"]:::npc
+  acts["Activity<br>started ↔ interrupted"]:::activity
+  fx["world writes<br>messages · meetings · transcripts · informal tasks · Jira"]:::world
+
+  pm -- "send_slack schedules a SlackSendEvent" --> act
+  act -- "advance(cost) = cost × step()" --> step
+  step -- "start due · complete finished" --> ev
+  step -- "tick() — burn down · complete" --> acts
+  acts -- "on_activity_done" --> npc
+  npc -- "request jira_work (next issue) · status SlackSendEvent" --> acts
+  ev -- "meeting starts → in_meeting bridge interrupts work" --> acts
+  ev -- "done: standup/mention closes in_review, re-sweeps" --> npc
+  ev -- "_on_start / _on_done" --> fx
+  acts -- "on_start / on_done" --> fx
+
+  classDef agent fill:#f3e8ff,stroke:#d8b4fe,color:#6b21a8;
+  classDef npc fill:#dcfce7,stroke:#86efac,color:#166534;
+  classDef event fill:#ccfbf1,stroke:#5eead4,color:#115e59;
+  classDef activity fill:#ffe4e6,stroke:#fda4af,color:#9f1239;
+  classDef drv fill:#e2e8f0,stroke:#cbd5e1,color:#334155;
+  classDef world fill:#fef3c7,stroke:#fcd34d,color:#92400e;
+```
+
+The cycle to notice is the rose↔green loop: a finished activity wakes the
+`WorkDriver`, whose sweep requests the next activities (and status events).
+Agent actions don't touch that loop directly — they buy the sim-time in which
+it runs, and steer it only through the Slack levers the reactions implement.
 
 ## How events are scheduled
 
@@ -135,9 +206,9 @@ heap**. `Scheduler.schedule(event)` (`pm/sim/scheduler.py`) stamps a monotonic
 then persists via `Store.upsert_event`. Global order is therefore
 `(start_tick, seq)` — deterministic across replays and resumes.
 
-Dispatch is purely clock-driven: each `Engine.step()` **starts** every pending
-event whose `start_tick` has arrived and **completes** every active event whose
-duration has elapsed. Behaviour lives on the `Event` subclass (`_on_start` /
+Dispatch is purely clock-driven: each `Engine.step()` (after ticking activities)
+**starts** every pending event whose `start_tick` has arrived and **completes**
+every active event whose duration has elapsed. Behaviour lives on the `Event` subclass (`_on_start` /
 `_on_done`) — the engine just moves rows through `start() → done()`; the
 subclasses apply the world mutation through `engine.store`. Instantaneous events
 have `duration == 0` and start and finish in the same tick.
@@ -147,6 +218,8 @@ have `duration == 0` and start and finish in the same tick.
 An NPC can only do one thing at a time, and a meeting must win over routine work.
 Two cooperating mechanisms enforce this; both express the same rule — **higher
 priority preempts, and preempted work pauses and resumes** — at different moments.
+The activity manager is the live path for NPC work; the calendar governs the
+durative *events* (meetings, OOO, and generator-produced `JiraTicketEvent`s).
 
 ### Calendar reservation (event level, at schedule time)
 
@@ -184,3 +257,11 @@ ticket and picks it back up afterward with exactly the work that was left. If an
 attender is already in an equal-or-higher activity, the incoming one waits
 (`backlogged`). Priority is the only per-kind knob (plus the `on_start`/`on_done`
 effect hooks).
+
+The two mechanisms meet at the **bridge**: `MeetingEvent._on_start` requests an
+`in_meeting` activity (100, no effects — the event stays the single writer of
+the meeting, transcript, and informal-task rows) for its attendees, and
+`OOOEvent._on_start` an `ooo` activity (200), so calendar events preempt
+activity work exactly as they preempt event work. When an activity completes,
+the manager fires its `on_activity_done` hook — the seam where the
+`WorkDriver` re-sweeps the roster (see the trigger section above).
