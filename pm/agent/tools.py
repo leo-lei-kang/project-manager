@@ -188,17 +188,28 @@ class AgentTools:
         return out
 
     def read_transcript(self, meeting_id: str) -> dict[str, Any]:
-        """Return one meeting's full transcript body (no sim-time cost)."""
+        """Return one meeting's full transcript body (no sim-time cost).
+
+        Logs an ``agent.read_transcript`` timeline entry carrying the
+        transcript's ``source`` (the authored file path(s) behind the body,
+        "" for inline/empty transcripts) so runs show what the agent read.
+        """
         now = self.env.clock.now()
         for t in self.env.store.list_transcripts(available_by=now):
             if t.meeting_id == meeting_id:
                 meeting = next(
                     (m for m in self.env.store.list_meetings() if m.id == meeting_id), None)
+                title = meeting.title if meeting else ""
+                self.env.store.log_event(
+                    now, actor=self.actor, kind="agent.read_transcript",
+                    payload={"meeting_id": t.meeting_id, "source": t.source,
+                             "title": title})
                 return {
                     "meeting_id": t.meeting_id,
-                    "title": meeting.title if meeting else "",
+                    "title": title,
                     "start_tick": meeting.start_tick if meeting else None,
                     "available_tick": t.available_tick,
+                    "source": t.source,
                     "body": t.body,
                 }
         raise ToolError(

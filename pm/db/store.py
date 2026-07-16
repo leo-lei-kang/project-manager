@@ -469,13 +469,14 @@ class Store:
 
     def add_transcript(self, transcript: Transcript) -> None:
         self.db.execute(
-            "INSERT INTO transcript (id, meeting_id, body, available_tick) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO transcript (id, meeting_id, body, available_tick, source) "
+            "VALUES (?, ?, ?, ?, ?)",
             (
                 transcript.id,
                 transcript.meeting_id,
                 transcript.body,
                 transcript.available_tick,
+                transcript.source,
             ),
         )
 
@@ -492,6 +493,7 @@ class Store:
                 meeting_id=r["meeting_id"],
                 body=r["body"],
                 available_tick=r["available_tick"],
+                source=r["source"],
             )
             for r in rows
         ]

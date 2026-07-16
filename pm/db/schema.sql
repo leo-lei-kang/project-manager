@@ -161,7 +161,8 @@ CREATE TABLE IF NOT EXISTS transcript (
     id             TEXT PRIMARY KEY,
     meeting_id     TEXT    NOT NULL REFERENCES meeting(id) ON DELETE CASCADE,
     body           TEXT    NOT NULL,
-    available_tick INTEGER NOT NULL
+    available_tick INTEGER NOT NULL,
+    source         TEXT    NOT NULL DEFAULT ''
 );
 
 -- Informal tasks — a mirror of Jira tickets that lives only in meeting notes.

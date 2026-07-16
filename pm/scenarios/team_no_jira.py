@@ -6,11 +6,13 @@ five DRIs — and the team agrees to "file the tickets later". Nobody does. The
 daily meeting payloads create and update the informal ``task`` rows as each
 meeting ends, and the authored transcripts (``pm/transcript/no-jira-*.md``)
 narrate the same statuses — so by Friday 15 tasks are done, five are mid-flight,
-and five haven't started, while the Jira board has never held a single ticket. The trap for a PM: ``read_jira_board`` says nothing
-is happening; ``read_transcripts`` (and the ``task`` table) tell the truth.
+and five haven't started, while the project has never reached the Jira board.
 
-There is no board work to dispatch, so the pickup hook idles all week; the
-meetings are the only events.
+The board is not empty, though: it holds only the low-priority "Engineering
+backlog" epic (ten 4-h tickets, two per member), which the pickup hook happily
+dispatches and finishes. The trap for a PM: ``read_jira_board`` shows a
+busy-and-green backlog board; ``read_transcripts`` (and the ``task`` table)
+tell the real story.
 """
 
 from __future__ import annotations
@@ -21,10 +23,17 @@ from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import MEMBERS as _CAST_MEMBERS
 from pm.npc.cast import seed_cast
 from pm.scenarios.project_board import PROJECT_ID as PROJECT_ID
-from pm.scenarios.project_board import seed_project_board
+from pm.scenarios.project_board import seed_backlog_epic, seed_project_board
 from pm.sim.clock import MINUTES_PER_WORKDAY
 from pm.sim.events import MeetingEvent
-from pm.transcript import STANDUP_DAYS, project_brief, project_tasks, standup_transcript
+from pm.transcript import (
+    STANDUP_DAYS,
+    brief_source,
+    project_brief,
+    project_tasks,
+    standup_source,
+    standup_transcript,
+)
 
 SCENARIO = "team_no_jira"
 
@@ -56,8 +65,10 @@ def _schedule_meetings(env: Env) -> None:
     for day in range(STANDUP_DAYS):
         kickoff = day == 0
         body = standup_transcript(day)
+        source = standup_source(day)
         if kickoff:
             body += "\n" + project_brief()  # the kickoff embeds the project doc
+            source += " + " + brief_source()
         payload = {
             "meeting_id": f"no-jira-{day}",
             "kind": "kickoff" if kickoff else "standup",
@@ -65,6 +76,7 @@ def _schedule_meetings(env: Env) -> None:
             "attendees": MEMBERS,
             "transcript_id": f"tr-no-jira-{day}",
             "transcript_body": body,
+            "transcript_source": source,
             "tasks": project_tasks() if kickoff else DAY_UPDATES[day],
         }
         env.engine.schedule(MeetingEvent(
@@ -78,6 +90,7 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
     env = Env.make(SCENARIO, run_id, seed, force=force, root=root)
     seed_cast(env.store, cast=CAST)
     seed_project_board(env, jira_ids=())
+    seed_backlog_epic(env)
     _schedule_meetings(env)
     env.store.db.backup_to(Env.seed_path(run_id, root))
     return env

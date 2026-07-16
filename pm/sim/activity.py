@@ -89,6 +89,7 @@ def _meeting_done(engine: "Engine", a: Activity) -> None:
     engine.store.add_transcript(Transcript(
         id=p.get("transcript_id", f"tr-{meeting_id}"), meeting_id=meeting_id,
         body=p.get("transcript_body", ""), available_tick=engine.clock.now(),
+        source=p.get("transcript_source", ""),
     ))
 
 

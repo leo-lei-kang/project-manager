@@ -2,11 +2,12 @@
 
 Same week as :mod:`pm.scenarios.team_no_jira` — the Meeting Transcripts v1
 project (25 tasks, DRIs, statuses) lives only in the meeting notes and the
-informal ``task`` table, and the Jira board never holds a ticket — but here an
-LLM PM reviews the run every four sim-hours. The board trap is the test:
-``read_jira_board`` says nothing is happening all week, and only a PM that
-reads the transcripts (``read_transcripts``) sees the real project. With no
-board work to steer, the Slack levers move nothing; the PM's job is visibility.
+informal ``task`` table, while the Jira board holds nothing but the
+low-priority backlog epic — but here an LLM PM reviews the run every four
+sim-hours (and after each meeting). The board trap is the test:
+``read_jira_board`` shows a busy-and-green backlog all week, and only a PM
+that reads the transcripts (``read_transcripts``) sees the real project — and
+can reconcile the board itself with the Jira write tools.
 
 The review hook (:func:`pm.agent.hook.llm_review_hook`) hands the model the
 agent tools; every model round-trip and tool call is logged with token usage to
@@ -29,7 +30,7 @@ from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast
 from pm.scenarios.project_board import PROJECT_ID as PROJECT_ID
-from pm.scenarios.project_board import seed_project_board
+from pm.scenarios.project_board import seed_backlog_epic, seed_project_board
 from pm.scenarios.team_no_jira import _schedule_meetings
 
 if TYPE_CHECKING:
@@ -86,6 +87,7 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
     env.store.db.execute(
         "INSERT INTO channel (id, name, kind) VALUES (?, ?, 'channel')", (CHANNEL, CHANNEL))
     seed_project_board(env, jira_ids=())
+    seed_backlog_epic(env)
     _schedule_meetings(env)
     env.store.db.backup_to(Env.seed_path(run_id, root))
     return env

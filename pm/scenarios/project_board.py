@@ -23,6 +23,23 @@ from pm.world.models import Project
 PROJECT_ID = "MT"
 PROJECT_NAME = "Meeting Transcripts v1"
 
+BACKLOG_PRIORITY = 3
+
+# Off-project, nice-to-have backlog: two 4-hour tickets per member, flavored to
+# their discipline. Low priority — never the top of anyone's queue.
+_BACKLOG: list[tuple[str, str]] = [
+    ("alice", "Refactor ingest retry helpers"),
+    ("alice", "Add tracing spans to search path"),
+    ("bob", "Benchmark alternative STT vendors"),
+    ("bob", "Clean up training-data scripts"),
+    ("clare", "Prune unused Storybook stories"),
+    ("clare", "Audit frontend bundle size"),
+    ("david", "Backfill API docs for v1 endpoints"),
+    ("david", "Migrate lint config to shared preset"),
+    ("elieen", "Refresh the shared icon set"),
+    ("elieen", "Audit spacing tokens across screens"),
+]
+
 
 def seed_project_board(env: Env, *, jira_ids: Collection[str] = ()) -> None:
     """Add the project row and file Jira tickets for the selected task ids only.
@@ -47,3 +64,22 @@ def seed_project_board(env: Env, *, jira_ids: Collection[str] = ()) -> None:
         api.create_issue(
             PROJECT_ID, "task", t["title"], estimate_minutes=int(t["estimate_minutes"]),
             assignee=t["dri_id"], component=disciplines[t["dri_id"]], actor="alice")
+
+
+def seed_backlog_epic(env: Env) -> None:
+    """File the low-priority "Engineering backlog" epic: ten 4-h tickets, two per
+    member — the visible-but-off-project work a busy board is made of."""
+    repo = JiraRepository(env.store)
+    repo.ensure_schema()
+    api = JiraApi(repo, env.engine)
+    disciplines = {c.id: c.discipline for c in _CAST_MEMBERS}
+
+    epic = api.create_issue(PROJECT_ID, "epic", "Engineering backlog",
+                            priority=BACKLOG_PRIORITY, actor="alice")
+    story = api.create_issue(PROJECT_ID, "story", "Backlog", parent=epic.id,
+                             priority=BACKLOG_PRIORITY, actor="alice")
+    for assignee, title in _BACKLOG:
+        api.create_issue(
+            PROJECT_ID, "task", title, parent=story.id, estimate_minutes=240,
+            assignee=assignee, component=disciplines[assignee],
+            priority=BACKLOG_PRIORITY, actor="alice")

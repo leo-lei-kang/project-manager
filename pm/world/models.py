@@ -78,6 +78,7 @@ class Transcript(BaseModel):
     meeting_id: str
     body: str
     available_tick: int
+    source: str = ""  # origin file path(s) of the body, "" when inline/empty
 
 
 TaskStatus = Literal["todo", "in_progress", "done"]

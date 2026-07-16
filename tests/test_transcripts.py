@@ -74,3 +74,39 @@ def test_agent_reads_transcripts_with_meeting_context(tmp_path):
     full = tools.read_transcript("no-jira-0")
     assert project_brief() in full["body"]  # the kickoff embeds the project doc
     env.close()
+
+
+def test_transcripts_carry_their_source_paths(tmp_path):
+    # Authored transcripts keep the .md path(s) behind their body; the kickoff
+    # merges two files and shows both. Unauthored transcripts have no source.
+    env = team_no_jira.build(run_id="nj-source", root=tmp_path)
+    env.engine.advance(180)  # Mon 12:00: kickoff ended
+    kickoff = env.store.list_transcripts(available_by=env.clock.now())[0]
+    assert kickoff.source == "pm/transcript/no-jira-0.md + pm/transcript/project_team.md"
+
+    env.engine.schedule(MeetingEvent(
+        owner_id="alice", start_tick=300, duration=30,
+        payload={"meeting_id": "adhoc-0", "kind": "sync", "title": "Ad-hoc sync",
+                 "attendees": ["alice", "bob"]}))
+    env.engine.advance_to(330)
+    adhoc = next(t for t in env.store.list_transcripts(available_by=env.clock.now())
+                 if t.meeting_id == "adhoc-0")
+    assert adhoc.source == ""
+    env.close()
+
+
+def test_read_transcript_logs_the_source(tmp_path):
+    # Reading a transcript leaves an agent.read_transcript timeline entry whose
+    # payload (and the tool's return) carry the source path.
+    env = team_no_jira.build(run_id="nj-readlog", root=tmp_path)
+    env.engine.advance(180)
+    tools = AgentTools(env)
+
+    full = tools.read_transcript("no-jira-0")
+
+    assert full["source"] == "pm/transcript/no-jira-0.md + pm/transcript/project_team.md"
+    reads = [e for e in env.store.read_log() if e.kind == "agent.read_transcript"]
+    assert len(reads) == 1 and reads[0].actor == "agent"
+    assert reads[0].payload["source"] == full["source"]
+    assert reads[0].payload["meeting_id"] == "no-jira-0"
+    env.close()

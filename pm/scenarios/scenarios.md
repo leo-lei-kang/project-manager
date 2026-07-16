@@ -77,9 +77,11 @@ breakdown as Jira tickets:
   week: 2,220 min per DRI after the meeting fabric) with DRIs **in the meeting
   notes only** (the informal `task` table mirrors them as each meeting ends);
   by Friday 15 are done, five carry over mid-flight, five never started, and
-  the Jira board never held a ticket. `read_jira_board` says nothing is
-  happening; `read_transcripts` tells the truth. Eval: PROJECT NOT DONE —
-  15/25 (source: notes), 0h of Jira tickets closed.
+  the project never reached the Jira board. The board instead holds only the
+  low-priority "Engineering backlog" epic (ten 4-h tickets, two per member),
+  which the members finish — so `read_jira_board` shows a busy-and-green
+  board while `read_transcripts` tells the truth. Eval: PROJECT NOT DONE —
+  15/25 (source: notes), 40h of Jira (backlog) tickets closed.
 
 `pm eval` grades exactly this: project completion from the informal task table
 (falling back to the Jira board when a run has none, as on the boards above),

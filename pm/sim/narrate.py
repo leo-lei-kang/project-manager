@@ -10,7 +10,7 @@ from __future__ import annotations
 from pm.sim.clock import format_tick
 from pm.world.models import LogEntry
 
-_DETAIL_KEYS = ("issue_key", "title", "name", "body", "doc_id", "type")
+_DETAIL_KEYS = ("issue_key", "source", "title", "name", "body", "doc_id", "type")
 
 
 def _brief(t: dict) -> str:

@@ -363,6 +363,7 @@ class MeetingEvent(Event):
                 meeting_id=p["meeting_id"],
                 body=p.get("transcript_body", ""),
                 available_tick=now,
+                source=p.get("transcript_source", ""),
             )
         )
         # Tasks named in the meeting land in the informal `task` table — work can

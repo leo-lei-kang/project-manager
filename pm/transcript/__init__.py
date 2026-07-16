@@ -22,6 +22,21 @@ def _read(name: str) -> str:
     return Path(__file__).with_name(name).read_text(encoding="utf-8")
 
 
+def transcript_source(name: str) -> str:
+    """Repo-relative path of a transcript file, e.g. ``pm/transcript/no-jira-0.md``."""
+    return f"pm/transcript/{name}"
+
+
+def standup_source(day: int) -> str:
+    """The source path behind :func:`standup_transcript` for weekday ``day``."""
+    return transcript_source(f"no-jira-{day}.md")
+
+
+def brief_source(board: str = "team") -> str:
+    """The source path behind :func:`project_brief` for ``board``."""
+    return transcript_source(f"project_{board}.md")
+
+
 def standup_transcript(day: int) -> str:
     """The authored markdown transcript for weekday ``day`` (0=Mon .. 4=Fri)."""
     if not 0 <= day < STANDUP_DAYS:

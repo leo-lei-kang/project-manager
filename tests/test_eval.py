@@ -76,7 +76,9 @@ def test_notes_project_not_done_despite_empty_board(tmp_path):
     assert report.source == "notes"
     assert (report.done_tasks, report.total_tasks) == (15, 25)
     assert not report.goal_accomplished
-    assert report.closed_jira_minutes == report.total_jira_minutes == 0
+    # The board holds only the low-priority backlog epic (10 x 4h), which the
+    # otherwise board-idle members finish — the project itself never reaches it.
+    assert report.closed_jira_minutes == report.total_jira_minutes == 2400
     assert len(report.remaining) == 10 and "NOTES-25" in {t.id for t in report.remaining}
     env.close()
 
