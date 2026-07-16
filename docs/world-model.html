@@ -102,37 +102,42 @@
 <div class="cards">
   <div class="card sim">
     <h3>Real calendar time</h3>
-    <p><mark class="sim">1 tick = 1 minute, 09:00–17:00, Mon–Fri</mark>. Meetings preempt work;
-    work resumes with remaining minutes intact — interruptions cost exactly what they cost.</p>
+    <p>The week runs on a real clock: <mark class="sim">1 tick = 1 minute, 09:00–17:00,
+    Mon–Fri</mark>. A meeting pauses whatever you were doing, and the work resumes with its
+    remaining minutes intact — so interruptions cost exactly what they cost, never more.</p>
   </div>
   <div class="card db">
     <h3>Honest capacity math</h3>
-    <p>Boards are tuned to real capacity: <mark class="db">60&nbsp;h board vs a 40&nbsp;h week</mark>
-    solo, zero-slack cross-blocked pairs, <mark class="db">2,220 min per DRI</mark> net of meetings.
-    Every slip has a cause.</p>
+    <p>Boards are tuned to real capacity: a <mark class="db">60&nbsp;h board vs a 40&nbsp;h
+    week</mark> solo, or <mark class="db">37&nbsp;h per DRI</mark> once standups, kickoffs, 1:1s,
+    team and ad-hoc meetings, and <mark class="db">OOO</mark> come off the calendar — so with
+    zero slack built in, every slip has a cause.</p>
   </div>
   <div class="card npc">
     <h3>Coworkers with habits</h3>
-    <p><mark class="npc">perfect</mark> closes on finish; <mark class="npc">heads_down</mark> parks
-    work in review and stalls partners; <mark class="npc">free_spirit</mark> picks at seeded random.
-    Stalled handoffs emerge from the mechanics.</p>
+    <p>Every coworker works their board a different way: <mark class="npc">perfect</mark> closes
+    work on finish, <mark class="npc">heads_down</mark> parks it in review until asked,
+    <mark class="npc">free_spirit</mark> picks at seeded random — so stalled handoffs aren't
+    scripted, they emerge from the habits colliding.</p>
   </div>
   <div class="card evt">
-    <h3>Two sources of truth</h3>
-    <p>The Jira board and the meeting notes can disagree — in one week,
-    <mark class="evt">25 tasks live only in transcripts</mark> while the board stays empty.
-    Dashboards lie; meetings don't.</p>
+    <h3>Information conflict</h3>
+    <p>The Jira board and the meeting notes are allowed to disagree: in one week,
+    <mark class="evt">25 tasks live only in transcripts</mark> while the board stays empty all
+    five days — so the dashboard can lie, and only a PM who reads the room sees the real
+    project.</p>
   </div>
   <div class="card agent">
     <h3>PM = communication only</h3>
-    <p>The agent's sole action is <mark class="agent">send_slack</mark>, with two levers: naming a
-    person closes their review; "please pick up KEY" preempts them onto it. No doing the work, no
-    fiat.</p>
+    <p>The agent's only action is <mark class="agent">send_slack</mark>, with two levers: naming
+    a person closes their parked review, and "please pick up KEY" preempts them onto that ticket
+    — so it can never do the work itself, only steer the people who do.</p>
   </div>
   <div class="card act">
-    <h3>Deterministic replay</h3>
-    <p><mark class="act">Same seed → same week, minute for minute</mark> (SQLite world + immutable
-    seed snapshot). Outcome changes are attributable to the agent, not noise.</p>
+    <h3>Persisted &amp; replayable</h3>
+    <p>Every run is plain state: <mark class="act">one SQLite world.db plus an immutable seed.db
+    snapshot</mark>, auditable with the stock sqlite3 CLI. Same seed, same week, minute for minute
+    — so a finished run can be inspected, diffed against its seed, and replayed at any time.</p>
   </div>
 </div>
 
@@ -140,6 +145,14 @@
 
 <p>Each scenario engineers one failure mode, pins its unmanaged baseline (seed 42), and leaves
 headroom only the PM levers can recover. A do-nothing PM lands exactly on the baseline.</p>
+
+<p><strong>How the agent is scored:</strong> the same seeded week runs with and without the PM,
+and <code>pm eval</code> compares outcomes — <code>done/total</code> project tasks from ground
+truth (the informal task table, board fallback), the PROJECT&nbsp;DONE verdict, and hours of
+tickets closed. The agent's score is its <em>lift over the pinned baseline</em>; messages, reads,
+and token spend earn nothing by themselves (cost is reported beside the outcome, not blended into
+it), and because the week is deterministic, every point of lift is attributable to the agent's
+messages — never to noise.</p>
 
 <table>
   <thead>
@@ -170,8 +183,8 @@ headroom only the PM levers can recover. A do-nothing PM lands exactly on the ba
 <ul class="tight">
   <li><strong>Mechanical grading</strong> — <code>pm eval</code> scores completion from ground truth
       (notes table, board fallback) plus hours closed; no LLM judge.</li>
-  <li><strong>Cost in the score</strong> — every model call and tool call is token-logged to
-      <code>agent.jsonl</code> and summed into the report.</li>
+  <li><strong>Cost beside the score</strong> — every model call and tool call is token-logged to
+      <code>agent-&lt;model&gt;.jsonl</code> and summed into the report, next to the outcome.</li>
   <li><strong>Hermetic tests</strong> — scripted fake clients pin the do-nothing baseline; real
       models slot in via one env var.</li>
   <li><strong>Auditable</strong> — the event log, transcripts, and HTML viz replay <em>why</em> the

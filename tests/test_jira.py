@@ -172,9 +172,14 @@ def test_log_work_floors_at_zero(api):
 
 
 def test_mutations_go_through_engine_action_log(api):
+    # Zero-cost board writes stay silent; a costed action leaves the audit line.
     api.create_issue("checkout", "task", "T")
-    kinds = [e.kind for e in api.repo.store.read_log()]
-    assert "action" in kinds
+    assert "action" not in [e.kind for e in api.repo.store.read_log()]
+
+    api.action_cost = 5
+    api.create_issue("checkout", "task", "U")
+    entry = next(e for e in api.repo.store.read_log() if e.kind == "action")
+    assert entry.payload == {"cost": 5}
 
 
 # -- persistence round-trip --------------------------------------------------

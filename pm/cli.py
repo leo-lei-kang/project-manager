@@ -14,12 +14,13 @@ Personas are baked into each scenario, so there is no runtime persona flag.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import typer
 
 from pm.db.store import Store
-from pm.env.environment import Env
+from pm.env.environment import RUNS_DIR
 from pm.eval import evaluate, format_report, to_dict
 from pm.exceptions import ConfigurationError
 from pm.scenarios import (
@@ -51,8 +52,6 @@ app = typer.Typer(
     help="Project Manager Simulation Environment — operator CLI.",
 )
 
-RUNS_DIR = Path("runs")
-
 
 def _db_path(run_id: str) -> Path:
     return RUNS_DIR / run_id / "world.db"
@@ -74,7 +73,7 @@ def sim(
 
     The scenario name is the run id and output folder: results land in
     ``runs/<scenario>/``. Personas are baked into each scenario (no persona flag).
-    Re-running an unfinished scenario continues it in place.
+    Re-running deletes the existing run folder and starts a fresh week.
     """
     if scenario not in SCENARIOS:
         raise typer.BadParameter(
@@ -82,23 +81,17 @@ def sim(
             param_hint="--scenario")
     module = SCENARIOS[scenario]
     path = _db_path(scenario)
-    if not path.exists():
-        env = module.build(run_id=scenario)
-        typer.echo(f"Built scenario '{scenario}' at {path.parent}/")
-    else:
-        env = Env.load(scenario)
+    # A fresh week every time: stale artifacts (agent-*.jsonl, eval.json) would
+    # otherwise leak into the new run's eval/viz.
+    shutil.rmtree(path.parent, ignore_errors=True)
+    env = module.build(run_id=scenario)
+    typer.echo(f"Built scenario '{scenario}' at {path.parent}/")
     if verbose:
         env.store.on_log = lambda e: typer.echo(format_entry(e))
         for line in runner.setup_summary(env, module):
             typer.echo(line)
 
     simulation = Simulation(env)
-    if simulation.is_over():
-        typer.echo(f"Run '{scenario}' is already at week end ({simulation.now_label()}).")
-        typer.echo(f"Evaluate it with:  uv run pm eval --scenario {scenario}")
-        env.close()
-        return
-
     start = simulation.now_label()
     summary = runner.drive(env, module)
     typer.echo(f"Simulated {start} -> {simulation.now_label()} "

@@ -20,7 +20,7 @@ def test_seed_cast_writes_members_stakeholders_agent(tmp_path):
     assert len(people) == len(MEMBERS) + len(STAKEHOLDERS) + 1
     # exactly one agent, and it is the PM
     agents = [p for p in people if p.is_agent]
-    assert [a.id for a in agents] == [AGENT.id] == ["pm"]
+    assert [a.id for a in agents] == [AGENT.id] == ["agent"]
     # kind persisted in persona
     alice = store.get_person("alice")
     assert alice.persona["kind"] == "member" and alice.persona["works"] is True
@@ -108,8 +108,8 @@ def test_meeting_defers_around_an_ooo_span(tmp_path):
     env.engine.schedule(OOOEvent(owner_id="alice", start_tick=0, duration=days(1),
                                  payload={"reason": "PTO"}))
     # A meeting with Alice, scheduled inside her OOO window.
-    mtg = MeetingEvent(owner_id="pm", start_tick=hours(2), duration=30,
-                            payload={"meeting_id": "m1", "attendees": ["pm", "alice"]})
+    mtg = MeetingEvent(owner_id="agent", start_tick=hours(2), duration=30,
+                            payload={"meeting_id": "m1", "attendees": ["agent", "alice"]})
     env.engine.schedule(mtg)
     # The calendar deferred the meeting to start at/after the OOO span ends.
     assert mtg.start_tick >= days(1)

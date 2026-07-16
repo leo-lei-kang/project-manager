@@ -1,11 +1,20 @@
 """Run the PM agent against a seeded board, with a model you pick — in-process.
 
     uv run python examples/run_agent_llm.py [MODEL] [PROMPT ...]
+    uv run python examples/run_agent_llm.py --scenario single_engineer_with_agent [MODEL]
     uv run python examples/run_agent_llm.py --list
 
-Seeds a throwaway world where one coworker clearly has the most Jira tickets
-(alice ×3, bob ×1, clare ×1), then wires the tools straight to the model via
-``InProcessBackend`` (no server) and runs the loop.
+Default mode seeds a throwaway world where one coworker clearly has the most
+Jira tickets (alice ×3, bob ×1, clare ×1), then wires the tools straight to the
+model via ``InProcessBackend`` (no server) and runs the loop.
+
+``--scenario NAME`` instead reproduces ONE in-sim PM review loop standalone:
+it builds that scenario's board (week-start state) and runs the scenario's own
+PROMPT with the review hook's step budget, printing the wall-clock time of
+every model round-trip — the way to measure why a `pm sim` week with the LLM
+PM feels slow (it blocks on 2-3 such round-trips per review, ~30 reviews a
+week) without simulating the week around it. MODEL overrides the scenario's
+default.
 
 MODEL defaults to the OpenAI flagship from ``pm.agent.openrouter_agent.MODELS``;
 PROMPT defaults to "who has the most Jira tickets?". Needs ``OPENROUTER_API_KEY``
@@ -19,6 +28,7 @@ import asyncio
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -74,6 +84,52 @@ def _run_in_process(model: str, prompt: str, api_key: str) -> None:
         env.close()
 
 
+def _timed_log() -> callable:
+    """Print each agent-log entry with the wall time since the previous one."""
+    last = time.monotonic()
+
+    def log(entry: dict) -> None:
+        nonlocal last
+        if entry["kind"] == "llm_call":
+            dt, last = time.monotonic() - last, time.monotonic()
+            out = entry["output"]["content"] or " ".join(
+                f"->{c['name']}" for c in entry["output"]["tool_calls"])
+            print(f"  llm_call step {entry['step']}: {dt:5.1f}s — "
+                  f"{entry['input_tokens']} in / {entry['output_tokens']} out — {out[:70]}")
+        else:
+            print(f"  tool_call {entry['name']}")
+
+    return log
+
+
+def _run_scenario_review(name: str, model: str | None, api_key: str) -> None:
+    """One in-sim review loop, standalone: the scenario's board, PROMPT, and tools."""
+    from openai import AsyncOpenAI
+
+    from pm.cli import SCENARIOS
+
+    if name not in SCENARIOS:
+        raise SystemExit(f"unknown scenario {name!r} (choices: {', '.join(SCENARIOS)})")
+    module = SCENARIOS[name]
+    if not hasattr(module, "PROMPT"):
+        raise SystemExit(f"scenario {name!r} has no PM review loop (no PROMPT)")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        env = module.build(run_id=_RUN_ID, root=Path(tmp))
+        model = model or getattr(module, "DEFAULT_MODEL", _DEFAULT_MODEL)
+        client = AsyncOpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
+        # max_steps=6 mirrors pm.agent.hook.llm_review_hook's review budget.
+        agent = LLMAgent(client, model, InProcessBackend(AgentTools(env)),
+                         max_steps=6, log=_timed_log())
+        print(f"model:    {model}")
+        print(f"scenario: {name} (week-start board, one review loop)\n")
+        t0 = time.monotonic()
+        answer = asyncio.run(agent.run(module.PROMPT))
+        print(f"\nanswer: {answer}")
+        print(f"total:  {time.monotonic() - t0:.1f}s for one review loop")
+        env.close()
+
+
 def main() -> None:
     args = sys.argv[1:]
     if args and args[0] in ("--list", "-l"):
@@ -82,14 +138,19 @@ def main() -> None:
             print(f"  {m}")
         return
 
-    model = args[0] if args else _DEFAULT_MODEL
-    prompt = " ".join(args[1:]) or _DEFAULT_PROMPT
-
     load_dotenv()
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise SystemExit("Set OPENROUTER_API_KEY in .env (see .env.example).")
 
+    if args and args[0] == "--scenario":
+        if len(args) < 2:
+            raise SystemExit("usage: run_agent_llm.py --scenario NAME [MODEL]")
+        _run_scenario_review(args[1], args[2] if len(args) > 2 else None, api_key)
+        return
+
+    model = args[0] if args else _DEFAULT_MODEL
+    prompt = " ".join(args[1:]) or _DEFAULT_PROMPT
     _run_in_process(model, prompt, api_key)
 
 

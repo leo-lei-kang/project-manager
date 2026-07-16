@@ -127,28 +127,38 @@ def _tool(name: str, description: str, properties: dict[str, Any], required: lis
     }
 
 
-# The five AgentTools capabilities as OpenAI function schemas (see pm/agent/tools.py).
+# The AgentTools capabilities as OpenAI function schemas (see pm/agent/tools.py).
 _AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
     _tool("send_slack", "Post a message to a Slack channel.",
           {"channel_id": {"type": "string"}, "body": {"type": "string"}},
           ["channel_id", "body"]),
-    _tool("read_slack", "Read the messages in a Slack channel, oldest first.",
-          {"channel_id": {"type": "string"}}, ["channel_id"]),
-    _tool("read_jira_board", "Read a project's Jira board: its issues (each with an "
-          "assignee_id) and a status breakdown.",
+    _tool("read_slack", "Read the messages in a Slack channel, oldest first. Pass "
+          "since_tick (the last tick you reviewed) to get only the new messages.",
+          {"channel_id": {"type": "string"},
+           "since_tick": {"type": "integer",
+                          "description": "Only messages sent at or after this tick."}},
+          ["channel_id"]),
+    _tool("read_jira_board", "Read a project's Jira board: the open issues (key, title, "
+          "status, assignee, priority, estimates, depends_on) and a status breakdown "
+          "covering all issues.",
           {"project_id": {"type": "string"}}, ["project_id"]),
     _tool("read_calendar", "Read the meetings a person attends (default: the agent).",
           {"person_id": {"type": "string"}}, []),
-    _tool("read_transcripts", "Read the meeting transcripts available so far "
-          "(markdown bodies); a transcript appears when its meeting ends.",
-          {}, []),
+    _tool("read_transcripts", "List the meeting transcripts available so far (id, title, "
+          "time, one-line preview); a transcript appears when its meeting ends. Pass "
+          "since_tick to list only newly available ones; fetch a body with read_transcript.",
+          {"since_tick": {"type": "integer",
+                          "description": "Only transcripts available at or after this tick."}},
+          []),
+    _tool("read_transcript", "Read one meeting's full transcript body by meeting_id.",
+          {"meeting_id": {"type": "string"}}, ["meeting_id"]),
 ]
 
 
 class InProcessBackend:
     """A :class:`ToolBackend` that calls :class:`~pm.agent.tools.AgentTools` directly.
 
-    Exposes the five agent tools with no server/transport — the way to drive
+    Exposes the agent tools with no server/transport — the way to drive
     :class:`LLMAgent` locally (from examples or scenario code).
     """
 

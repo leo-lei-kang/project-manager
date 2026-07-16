@@ -52,7 +52,7 @@ PROMPT = (
 
 # The five implementers + the pm agent (the Slack sender). MEMBERS drives the
 # pickup hook; the agent has works=False so the pickup hook skips it.
-CAST = [c for c in _FULL_CAST if c.kind == "member" or c.id == "pm"]
+CAST = [c for c in _FULL_CAST if c.kind == "member" or c.id == "agent"]
 MEMBERS = [c.id for c in CAST if c.kind == "member"]
 
 

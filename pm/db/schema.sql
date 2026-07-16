@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS event_log (
     sim_tick     INTEGER NOT NULL,
     actor        TEXT    NOT NULL,
     kind         TEXT    NOT NULL,
-    payload_json TEXT    NOT NULL DEFAULT '{}'
+    payload_json TEXT    NOT NULL DEFAULT '{}',
+    wall_time    TEXT    NOT NULL DEFAULT ''  -- real time the row was recorded
 );
 CREATE INDEX IF NOT EXISTS idx_event_log_tick ON event_log (sim_tick);
 

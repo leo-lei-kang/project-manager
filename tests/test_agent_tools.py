@@ -13,7 +13,7 @@ from pm.world.models import Meeting, Message, Project
 @pytest.fixture
 def env(tmp_path) -> Env:
     e = Env.make(run_id="agent", root=tmp_path)
-    seed_cast(e.store)  # includes the agent "pm" plus the members/stakeholders
+    seed_cast(e.store)  # includes the agent "agent" plus the members/stakeholders
     e.store.add_project(Project(id="checkout", name="Checkout"))
     e.store.db.execute("INSERT INTO channel (id, name, kind) VALUES ('eng', 'eng', 'channel')")
     yield e
@@ -29,11 +29,11 @@ def test_send_slack_posts_costs_time_and_logs_action(tools: AgentTools, env: Env
     assert env.clock.now() == 0
     posted = tools.send_slack("eng", "morning standup in 5")
 
-    assert posted["sender_id"] == "pm" and posted["body"] == "morning standup in 5"
+    assert posted["sender_id"] == "agent" and posted["body"] == "morning standup in 5"
     assert env.clock.now() == tools.send_cost  # the send consumed sim-time
     assert posted["sent_tick"] == 1  # landed via the event pipeline, one tick later
     kinds = [(e.actor, e.kind) for e in env.store.read_log()]
-    assert ("pm", "action") in kinds
+    assert ("agent", "action") in kinds
 
 
 def test_send_slack_triggers_a_slack_send_event(tools: AgentTools, env: Env) -> None:
@@ -41,7 +41,7 @@ def test_send_slack_triggers_a_slack_send_event(tools: AgentTools, env: Env) -> 
     tools.send_slack("eng", "ping")
     row = env.store.db.query_one(
         "SELECT status, owner_id FROM event WHERE type = 'slack.send'")
-    assert row is not None and row["status"] == "done" and row["owner_id"] == "pm"
+    assert row is not None and row["status"] == "done" and row["owner_id"] == "agent"
 
 
 def test_send_slack_unknown_channel_raises_tool_error(tools: AgentTools) -> None:
@@ -57,8 +57,10 @@ def test_read_slack_returns_conversation(tools: AgentTools, env: Env) -> None:
     tools.send_slack("eng", "thanks")
     convo = tools.read_slack("eng")
     assert [(m["sender_id"], m["body"]) for m in convo] == [
-        ("alice", "on it"), ("pm", "thanks"),
+        ("alice", "on it"), ("agent", "thanks"),
     ]
+    # since_tick windows the history to the delta
+    assert [m["body"] for m in tools.read_slack("eng", since_tick=1)] == ["thanks"]
 
 
 def test_read_jira_board_summarizes_issues(tools: AgentTools) -> None:
@@ -69,14 +71,30 @@ def test_read_jira_board_summarizes_issues(tools: AgentTools) -> None:
     assert board["project_id"] == "checkout"
     assert {i["title"] for i in board["issues"]} == {"API", "UI"}
     assert board["counts_by_status"] == {"todo": 2}
+    # token-lean rows: only the steering fields, no empty description/tick noise
+    assert set(board["issues"][0]) == {"key", "type", "title", "status", "assignee",
+                                       "priority", "estimate_minutes",
+                                       "remaining_minutes", "depends_on"}
+
+
+def test_read_jira_board_lists_open_issues_only(tools: AgentTools) -> None:
+    done = tools.jira.create_issue("checkout", "task", "Shipped", estimate_minutes=30,
+                                   assignee="alice", actor="erin")
+    tools.jira.transition_issue(done.id, "in_progress", actor="alice")
+    tools.jira.transition_issue(done.id, "done", actor="alice")
+    tools.jira.create_issue("checkout", "task", "Open", estimate_minutes=30, actor="erin")
+    board = tools.read_jira_board("checkout")
+
+    assert [i["title"] for i in board["issues"]] == ["Open"]  # done row dropped
+    assert board["counts_by_status"] == {"done": 1, "todo": 1}  # but still counted
 
 
 def test_read_calendar_returns_only_the_persons_meetings(tools: AgentTools, env: Env) -> None:
     env.store.add_meeting(Meeting(id="m1", title="Standup", start_tick=120, end_tick=150,
-                                  attendees={"pm": "accepted", "alice": "accepted"}))
+                                  attendees={"agent": "accepted", "alice": "accepted"}))
     env.store.add_meeting(Meeting(id="m2", title="Design sync", start_tick=200, end_tick=260,
                                   attendees={"alice": "accepted", "elieen": "accepted"}))
 
-    mine = tools.read_calendar()  # defaults to the agent ("pm")
+    mine = tools.read_calendar()  # defaults to the agent ("agent")
     assert [m["id"] for m in mine] == ["m1"]
     assert [m["id"] for m in tools.read_calendar("alice")] == ["m1", "m2"]

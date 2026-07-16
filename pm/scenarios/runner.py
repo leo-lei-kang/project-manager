@@ -37,8 +37,9 @@ def _n(count: int, noun: str, plural: str | None = None) -> str:
 def setup_summary(env: "Env", module: Any) -> list[str]:
     """Plain configuration lines describing what ``module``'s week starts from.
 
-    Not simulation events — `pm sim` prints these once as a banner before
-    driving; nothing lands in the ``event_log``.
+    Roster, board and calendar totals, then each epic's tickets with their
+    estimates. Not simulation events — `pm sim` prints these once as a banner
+    before driving; nothing lands in the ``event_log``.
     """
     api = JiraApi(JiraRepository(env.store), env.engine)
     members = []
@@ -73,11 +74,19 @@ def setup_summary(env: "Env", module: Any) -> list[str]:
            if pending_ooo else "no ooo")
     channels = env.store.db.query_one("SELECT COUNT(*) AS n FROM channel")["n"]
 
-    return [
+    lines = [
         f"engineers: {len(members)} — {', '.join(members)}",
         f"board: {jira}; {informal}",
         f"calendar: {meetings}; {ooo}; {_n(channels, 'channel')}",
     ]
+    for epic in by_type["epic"]:
+        subtasks = [i for i in api.repo.subtree(epic.id) if i.issue_type == "task"]
+        subtasks.sort(key=lambda i: int(i.id.rsplit("-", 1)[1]))
+        lines.append(f"epic {epic.id} (p{epic.priority}) {epic.title} — "
+                     f"{_n(len(subtasks), 'task')} / "
+                     f"{_hours(sum(t.estimate_minutes for t in subtasks))}:")
+        lines += [f"  {t.id}  {t.title} — {_hours(t.estimate_minutes)}" for t in subtasks]
+    return lines
 
 
 def drive(env: "Env", module: Any) -> RunSummary:

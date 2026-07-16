@@ -23,7 +23,9 @@ from pm.world.resources import ResourceMode, WorldResource
 from pm.sim.clock import SimClock
 from pm.sim.engine import Engine
 
-RUNS_DIR = Path("runs")
+# Anchored to the repo root so runs land in <repo>/runs/ regardless of the cwd
+# the CLI is invoked from (this file lives at <repo>/pm/env/environment.py).
+RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
 
 
 class Env:

@@ -164,7 +164,7 @@
   <thead><tr><th>Module</th><th>Group</th><th>Responsibility</th></tr></thead>
   <tbody>
     <tr><td><span class="path">pm/sim/</span></td><td><span class="chip sim">sim core</span></td>
-        <td>Clock, events, the engine (event queue + schedule + the per-minute loop), per-NPC calendar (occupancy contention), activities, the NPC component (<code>npc.py</code> — WorkDriver + reactions), and the week loop (<code>simulation.py</code>).</td></tr>
+        <td>Clock, events, the engine (event queue + schedule + the per-minute loop), per-NPC calendar (occupancy contention), activities, the NPC component (<code>npc.py</code> — WorkDriver + reactions), the week loop (<code>simulation.py</code>), and one-line sim-time narration (<code>narrate.py</code>).</td></tr>
     <tr><td><span class="path">pm/db/</span></td><td><span class="chip db">persistence</span></td>
         <td><code>database.py</code> (raw sqlite3 wrapper), <code>store.py</code> (the only typed mutation interface), <code>schema.sql</code>.</td></tr>
     <tr><td><span class="path">pm/world/</span></td><td><span class="chip db">persistence</span></td>
@@ -172,7 +172,7 @@
     <tr><td><span class="path">pm/npc/</span></td><td><span class="chip npc">npc</span></td>
         <td>Cast roster + persona presets. The behavior/reactions component itself lives in the sim: <span class="path">pm/sim/npc.py</span>.</td></tr>
     <tr><td><span class="path">pm/agent/</span></td><td><span class="chip agent">agent</span></td>
-        <td>The PM agent-under-test: <code>AgentTools</code> capability surface + the in-process OpenRouter LLM loop.</td></tr>
+        <td>The PM agent-under-test: <code>AgentTools</code> capability surface, the in-process OpenRouter LLM loop, the in-sim review hook (<code>hook.py</code>), and per-model <code>agent-&lt;model&gt;.jsonl</code> logs (<code>log.py</code>).</td></tr>
     <tr><td><span class="path">pm/jira/</span></td><td><span class="chip jira">jira</span></td>
         <td>Jira-shaped subsystem: Issue models, repository (adds <code>issue</code>/<code>issue_dependency</code> tables), <code>JiraApi</code> (transitions, derived-blocked).</td></tr>
     <tr><td><span class="path">pm/scenarios/</span></td><td><span class="chip drv">driver</span></td>
@@ -184,7 +184,7 @@
     <tr><td><span class="path">pm/eval/</span>, <span class="path">pm/viz/</span></td><td><span class="chip drv">driver</span></td>
         <td>Deterministic board grading; static HTML rendering of calendars and boards.</td></tr>
     <tr><td><span class="path">pm/cli.py</span></td><td><span class="chip drv">driver</span></td>
-        <td>Operator CLI (Typer): <code>pm sim | eval | viz</code> with the scenario catalog.</td></tr>
+        <td>Operator CLI (Typer): <code>pm sim | eval | viz | log</code> with the scenario catalog; <code>sim</code> streams the narration live, <code>log</code> reprints it from the persisted <code>event_log</code>.</td></tr>
   </tbody>
 </table>
 
@@ -632,10 +632,11 @@ activities poke it again (<code>on_activity_done</code>)</em>.</p>
       <code>SlackSendEvent</code>, which lands through the event pipeline during the cost window —
       the same path NPC messages take, so world reactions fire for it too.</li>
   <li><strong>Event done → reactions; meetings preempt work.</strong> When <code>step()</code>
-      completes a standup or a Slack send, the close reactions fire
+      completes a standup, a Slack send, or a Slack read, the close reactions fire
       (<code>WorkDriver.on_event_done</code>, the Engine's event-completion hook — the NPC
-      component never touches the <code>Simulation</code> loop): naming a person closes their
-      <code>in_review</code> work,
+      component never touches the <code>Simulation</code> loop): a send schedules a read for each
+      named person (1–60 min later), and the <em>read</em> closes their <code>in_review</code> work
+      and takes directives,
       then the driver re-sweeps so unblocked dependents dispatch immediately. A
       <code>MeetingEvent</code> starting requests a bridged <code>meeting</code> activity that
       interrupts its attendees' work (OOO bridges at priority 200).</li>
@@ -800,12 +801,16 @@ Scenarios swap them per member with <code>with_personas(cast, …)</code>.</p>
     <ul>
       <li><code>MEETING</code> done → a <em>standup</em> prompts attendees to close their
           <code>in_review</code> work.</li>
-      <li><code>SLACK_SEND</code> done → a message <em>naming a person</em> closes their
-          <code>in_review</code> work; a “pick up <code>KEY</code>” directive bumps that issue to
-          priority 0.</li>
+      <li><code>SLACK_SEND</code> done → each person <em>named</em> in the body gets a
+          <code>SlackReadEvent</code> a seeded-random 1–60 minutes later (never the sender); the
+          message's effects land on the read.</li>
+      <li><code>SLACK_READ</code> done → the reader closes their <code>in_review</code> work; a
+          “pick up <code>KEY</code>” directive bumps that issue to priority 0 and preempts the
+          ticket they are working (it resumes afterwards). A read scheduled past Fri 17:00 never
+          fires — a directive sent in the last hour can go unread.</li>
       <li><code>JIRA_TICKET</code> done → the assignee picks up their next ready ticket
           (the event-path cascade — the procedural generator's flow).</li>
-      <li>Email/Slack reads and OOO are documented no-op placeholders.</li>
+      <li>Email reads and OOO are documented no-op placeholders.</li>
     </ul>
   </div>
 </div>
@@ -814,12 +819,15 @@ Scenarios swap them per member with <code>with_personas(cast, …)</code>.</p>
 <h2 id="agent">9. The PM agent ↔ the sim <span class="path">pm/agent/</span></h2>
 
 <p>The PM cannot touch the board directly. Its <strong>only mutation is Slack</strong> — and the world
-already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agent exactly two levers:</p>
+already reacts to Slack, giving the agent exactly two levers. Both land when the named person
+<em>reads</em> the message (a seeded 1–60 minutes after the send — see the reactions above), so a
+directive sent in the week's final hour can go unread:</p>
 <ul>
   <li><strong>Close</strong>: a message naming a person closes their finished-but-unclosed
       (<code>in_review</code>) work — which can unblock a teammate's dependent ticket.</li>
-  <li><strong>Direct</strong>: “please pick up <code>KEY</code> next” bumps that issue to priority 0 —
-      the level even a <em>freestyle</em> persona works first.</li>
+  <li><strong>Direct</strong>: “please pick up <code>KEY</code> next” bumps that issue to priority 0
+      and <em>preempts</em> the ticket the person is working — the urgent one runs just above normal
+      work priority, and the interrupted ticket resumes afterwards.</li>
 </ul>
 
 <h3>Tool surface — <span class="path">pm/agent/tools.py</span></h3>
@@ -832,24 +840,29 @@ already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agen
             <code>SlackSendEvent</code> (duration 0), which lands through the event pipeline during
             the cost window — one tick of send latency, the same path NPC messages take, so world
             reactions fire for it. Unknown channels surface as <code>ToolError</code>.</td></tr>
-    <tr><td><code>read_slack(channel_id)</code></td><td>read</td><td>0</td>
-        <td>Channel messages, oldest first.</td></tr>
+    <tr><td><code>read_slack(channel_id, since_tick?)</code></td><td>read</td><td>0</td>
+        <td>Channel messages, oldest first; <code>since_tick</code> windows to the delta since the
+            last review.</td></tr>
     <tr><td><code>read_jira_board(project_id)</code></td><td>read</td><td>0</td>
-        <td>All issues + <code>counts_by_status</code> dashboard.</td></tr>
+        <td>Token-lean dashboard: <em>open</em> issues only, each reduced to the steering fields
+            (key, title, status, assignee, priority, estimates, deps) + a
+            <code>counts_by_status</code> covering everything.</td></tr>
     <tr><td><code>read_calendar(person_id?)</code></td><td>read</td><td>0</td>
         <td>Meetings a person attends (defaults to the agent).</td></tr>
-    <tr><td><code>read_transcripts()</code></td><td>read</td><td>0</td>
-        <td>Meeting transcripts available so far — a transcript appears when its meeting ends
-            (<code>available_tick</code> gating).</td></tr>
+    <tr><td><code>read_transcripts(since_tick?)</code></td><td>read</td><td>0</td>
+        <td>Cheap index of available transcripts (id, title, time, one-line preview) — a
+            transcript appears when its meeting ends (<code>available_tick</code> gating).</td></tr>
+    <tr><td><code>read_transcript(meeting_id)</code></td><td>read</td><td>0</td>
+        <td>One meeting's full transcript body — the list/detail split keeps reviews from
+            re-paying for every body each time.</td></tr>
   </tbody>
 </table>
 
 <p>There is no server between the model and the sim. <code>LLMAgent</code>
 (<span class="path">agent/openrouter_agent.py</span>) runs a model ⇄ tool-call loop (max 12 steps) over
-<code>InProcessBackend</code>, which binds exactly these five tools directly to an
+<code>InProcessBackend</code>, which binds exactly these tools directly to an
 <code>AgentTools</code> instance for the run (name = method, schema =
-<code>_AGENT_TOOL_SCHEMAS</code>). Models come from OpenRouter (OpenAI-compatible API); the
-<code>pm-agent</code> CLI drives the loop against a prepared run.</p>
+<code>_AGENT_TOOL_SCHEMAS</code>). Models come from OpenRouter (OpenAI-compatible API).</p>
 
 <figure>
 <svg viewBox="0 0 920 375" role="img" aria-label="PM agent interaction sequence">
@@ -898,24 +911,26 @@ already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agen
 Slack reactions turn it into board effects.</figcaption>
 </figure>
 
-<h3>Two PM variants, one set of levers</h3>
-<table>
-  <thead><tr><th>Variant</th><th>Where</th><th>Cadence</th><th>Effect on the board</th></tr></thead>
-  <tbody>
-    <tr><td><strong>LLM PM</strong></td>
-        <td><code>LLMAgent</code> (<span class="path">agent/openrouter_agent.py</span>) — a
-            model ⇄ tool-call loop (max 12 steps) over <code>InProcessBackend</code>
-            (direct <code>AgentTools</code>); OpenRouter models, <code>pm-agent</code> CLI.</td>
-        <td>its own review cadence</td>
-        <td>Full lever access via <code>send_slack</code>.</td></tr>
-    <tr><td><strong>Visibility-only PM</strong></td>
-        <td><code>agent_review_hook</code> in
-            <span class="path">scenarios/single_engineer_with_agent.py</span> — uses
-            <code>AgentTools.read_jira_board</code> + a <code>SlackSendEvent</code></td>
-        <td>every 240 ticks</td>
-        <td>Posts board highlights only — never reorders picks (a contrast case).</td></tr>
-  </tbody>
-</table>
+<h3>The in-sim LLM PM — <span class="path">pm/agent/hook.py</span></h3>
+<p><code>llm_review_hook(env, period, …)</code> builds the <code>agent_review_hook</code> a
+<code>*_with_agent</code> scenario exposes and the runner composes as its <code>on_tick</code>: every
+<code>period</code> ticks (240 — four sim-hours — in the catalog) it runs one <code>LLMAgent</code>
+loop over the tools, <em>inside</em> the simulated week. Two run-integration rules:</p>
+<ul>
+  <li><strong>Clock-safe sends.</strong> Inside the sim loop the plain tool would advance the clock
+      mid-tick (it routes through <code>perform_action</code>), so the hook overrides
+      <code>send_slack</code> to schedule the <code>SlackSendEvent</code> at the current tick instead —
+      still an event, no time consumed by the review itself.</li>
+  <li><strong>Everything is logged.</strong> Each model round-trip (with token usage) and tool call is
+      appended, stamped with the sim tick, to the run's <code>agent-&lt;model&gt;.jsonl</code>
+      (<span class="path">pm/agent/log.py</span>) — the source for eval's token totals and viz's
+      <code>agent_activity.html</code> — and mirrored into the run's <code>event_log</code> as
+      <code>agent.llm_call</code> / <code>agent.tool_call</code> rows, so the narration stream shows
+      the PM thinking alongside the world acting.</li>
+</ul>
+<p>Under <code>pm sim</code> the hook needs <code>OPENROUTER_API_KEY</code> (model from
+<code>OPENROUTER_MODEL</code>); the hermetic tests inject a scripted fake client — a PM that steers
+nothing reproduces the unmanaged scenario outcomes.</p>
 
 <!-- ================================================================== -->
 <h2 id="persistence">10. Persistence &amp; scenarios</h2>
@@ -991,9 +1006,9 @@ is reserved before anything else is placed.</p>
 
 <footer>
   Generated 2026-07-16 from the source at commit-time state — anchors:
-  <span class="path">pm/sim/{clock,events,engine,calendar,activity,npc,simulation}.py</span> ·
-  <span class="path">pm/sim/npc.py</span> · <span class="path">pm/npc/{cast,persona}.py</span> ·
-  <span class="path">pm/agent/{tools,openrouter_agent}.py</span> ·
+  <span class="path">pm/sim/{clock,events,engine,calendar,activity,npc,narrate,simulation}.py</span> ·
+  <span class="path">pm/npc/{cast,persona}.py</span> ·
+  <span class="path">pm/agent/{tools,hook,log,openrouter_agent}.py</span> ·
   <span class="path">pm/db/{database,store,schema.sql}</span> ·
   <span class="path">pm/scenarios/runner.py</span>
 </footer>

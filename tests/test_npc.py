@@ -34,7 +34,7 @@ def test_seed_cast_writes_members_stakeholders_and_agent(api: JiraApi) -> None:
     people = api.repo.store.list_people()
     assert {p.id for p in people} == {c.id for c in CAST}
     # exactly one agent (the PM under test); everyone else is an NPC
-    assert [p.id for p in people if p.is_agent] == ["pm"]
+    assert [p.id for p in people if p.is_agent] == ["agent"]
     alice = api.repo.store.get_person("alice")
     assert alice is not None and alice.persona["discipline"] == "backend"
 
@@ -80,7 +80,7 @@ def test_stakeholders_and_agent_do_not_self_take(api: JiraApi, env: Env) -> None
     api.create_issue("checkout", "task", "Roadmap", component="management",
                      estimate_minutes=30, actor="xavier")
     WorkDriver(api, CAST, "checkout").sweep(env.engine)
-    for pid in ("erin", "vera", "xavier", "pm"):
+    for pid in ("erin", "vera", "xavier", "agent"):
         assert api.search(assignee=pid) == []
 
 
@@ -222,7 +222,7 @@ def test_directive_read_bumps_and_preempts_end_to_end(api: JiraApi, env: Env) ->
     env.engine.on_event_done = driver.on_event_done
     driver.sweep(env.engine)                     # kickoff: picks Current
     env.engine.schedule(SlackSendEvent(
-        owner_id="pm", start_tick=10,
+        owner_id="agent", start_tick=10,
         payload={"message_id": "m", "channel_id": "eng",
                  "body": f"alice please pick up {urgent.id}"}))
 

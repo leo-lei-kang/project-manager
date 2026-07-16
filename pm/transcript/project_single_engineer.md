@@ -13,9 +13,12 @@ flag; the demo target is a full meeting transcribed end-to-end.
 
 | Task id | Title | DRI | Status | Estimate (min) |
 |---------|-------|-----|--------|----------------|
-| NOTES-1 | Transcribe meeting audio live (STT pipeline) | alice | todo | 420 |
-| NOTES-2 | Store transcripts per meeting with retention | alice | todo | 420 |
-| NOTES-3 | Serve transcripts through the meeting API | alice | todo | 420 |
-| NOTES-4 | In-app transcript viewer with speaker labels | alice | todo | 420 |
-| NOTES-5 | Search across a meeting's transcript | alice | todo | 420 |
-| NOTES-6 | Design pass: transcript reading and search UX | alice | todo | 300 |
+| NOTES-1 | Transcribe meeting audio live (STT pipeline) | alice | todo | 300 |
+| NOTES-2 | Store transcripts per meeting with retention | alice | todo | 240 |
+| NOTES-3 | Serve transcripts through the meeting API | alice | todo | 240 |
+| NOTES-4 | In-app transcript viewer with speaker labels | alice | todo | 240 |
+| NOTES-5 | Search across a meeting's transcript | alice | todo | 180 |
+| NOTES-6 | Speaker diarization and label cleanup | alice | todo | 180 |
+| NOTES-7 | Feature flag and demo environment wiring | alice | todo | 180 |
+| NOTES-8 | Transcript export and share links | alice | todo | 180 |
+| NOTES-9 | Design pass: transcript reading and search UX | alice | todo | 180 |

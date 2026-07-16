@@ -67,8 +67,11 @@ tasks](#meetings-transcripts--informal-tasks)); the Jira board adds its own
 
 ## Operator surface (scenario-keyed)
 
-The CLI (`pm/cli.py`) is deliberately narrow: `sim`, `eval`, and `viz` each take a
-single `--scenario`, and **the scenario name is the run id and the output folder**.
+The CLI (`pm/cli.py`) is deliberately narrow: `sim`, `eval`, `viz`, and `log`
+each take a single `--scenario`, and **the scenario name is the run id and the
+output folder**. `pm sim` streams one-line sim-time narration live as the week
+runs (`pm/sim/narrate.py`, fed by a `Store.on_log` callback); `pm log` reprints
+the same narration from the persisted `event_log` afterwards.
 There is no persona or run-id flag — **each scenario module bakes in its own
 personas** (`build(member_persona=…)` defaults, applied via
 `pm/npc/cast.py::with_personas`), so `pm sim --scenario X` alone reproduces that
@@ -78,8 +81,13 @@ Everything a scenario produces lives under **`runs/<scenario>/`**, the self-cont
 result bundle:
 
 - `world.db`, `seed.db` — from `sim` (the finished world + its immutable seed).
-- `eval.json` — from `eval` (`to_dict(report)`, written alongside the printed report).
-- `calendars.html`, `jira_tasks.html` — from `viz` (static HTML/SVG, no JS/browser).
+- `agent-<model>.jsonl` — from a `*_with_agent` run: every LLM round-trip and
+  tool call, stamped with the sim tick (`pm/agent/log.py`; one file per model).
+- `eval.json` — from `eval` (`to_dict(report)`, written alongside the printed
+  report; sums the agent logs' token usage).
+- `calendars.html`, `jira_tasks.html`, `agent_activity.html` — from `viz`
+  (static HTML/SVG, no JS/browser; the agent timeline is skipped when a run has
+  no agent log).
 
 `pm/scenarios/runner.py::drive` is the shared driver used by both `pm sim` and the
 catalog test. It builds a `WorkDriver`, installs it as the `ActivityManager`'s
@@ -89,6 +97,17 @@ for the standup/Slack closes), sweeps once at kickoff, and runs the week with an
 then fires a final PM close-out. The registered scenarios and their
 verified outcomes are cataloged in
 [`pm/scenarios/scenarios.md`](../pm/scenarios/scenarios.md).
+
+The `*_with_agent` variants attach an **in-sim LLM PM**
+(`pm/agent/hook.py::llm_review_hook`): every four sim-hours the model gets one
+`LLMAgent` tool loop over the run. Its sends are clock-safe — the hook
+overrides `send_slack` to schedule the `SlackSendEvent` at the current tick,
+so reviewing consumes no sim-time — and every model round-trip and tool call
+is logged with token usage to `runs/<name>/agent-<model>.jsonl` and mirrored
+into the `event_log` (`agent.llm_call` / `agent.tool_call`), so the narration
+stream shows the PM thinking alongside the world acting. Under `pm sim` the
+hook needs `OPENROUTER_API_KEY` (model from `OPENROUTER_MODEL`); the hermetic
+tests inject a scripted fake client.
 
 ## Meetings, transcripts & informal tasks
 
@@ -170,7 +189,7 @@ Three moving parts share the one clock, and each fires the others:
   directive, taken at read time, preempts the ticket being worked (the
   directed one runs just above normal work priority; the interrupted ticket
   resumes afterwards).
-- **Meetings preempt work.** A `MeetingEvent`'s `_on_start` requests an
+- **Meetings preempt work.** A `MeetingEvent`'s `_on_start` requests a
   bridged `meeting` activity (priority 100; `event_id` in its params makes
   the kind's effects no-op) for its attendees,
   which interrupts their `jira_work` (40); `OOOEvent` bridges the same way at

@@ -10,7 +10,7 @@ over the existing world:
   * **Reads** are pure queries with no sim-time cost, returning plain JSON-ready
     dicts (what an LLM tool would consume), not internal model objects.
 
-The agent's identity defaults to the cast's ``AGENT`` (``"pm"``).
+The agent's identity defaults to the cast's ``AGENT`` (``"agent"``).
 """
 
 from __future__ import annotations
@@ -72,18 +72,39 @@ class AgentTools:
         return {"id": message_id, "channel_id": channel_id, "sender_id": self.actor,
                 "body": body, "sent_tick": None}
 
-    def read_slack(self, channel_id: str) -> list[dict[str, Any]]:
-        """Return the messages in a channel, oldest first (no sim-time cost)."""
-        return [m.model_dump() for m in self.env.store.list_messages(channel_id)]
+    def read_slack(self, channel_id: str, since_tick: int = 0) -> list[dict[str, Any]]:
+        """Return the messages in a channel, oldest first (no sim-time cost).
+
+        ``since_tick`` windows the history — pass the last tick you reviewed to
+        pay only for the delta instead of the whole week's conversation.
+        """
+        return [m.model_dump() for m in self.env.store.list_messages(channel_id)
+                if m.sent_tick >= since_tick]
 
     # -- Jira board ----------------------------------------------------------
 
     def read_jira_board(self, project_id: str) -> dict[str, Any]:
-        """Return a dashboard view of a project's board (no sim-time cost)."""
+        """Return a dashboard view of a project's board (no sim-time cost).
+
+        Token-lean by design: ``issues`` lists only the *open* work (todo, blocked,
+        in_progress, in_review), each as the handful of fields a PM steers with;
+        finished work shows up in ``counts_by_status`` rather than as full rows.
+        """
         issues = self.jira.search(project_id=project_id)
+        open_issues = [i for i in issues if i.status not in ("done", "cancelled")]
         return {
             "project_id": project_id,
-            "issues": [i.model_dump() for i in issues],
+            "issues": [{
+                "key": i.id,
+                "type": i.issue_type,
+                "title": i.title,
+                "status": i.status,
+                "assignee": i.assignee_id,
+                "priority": i.priority,
+                "estimate_minutes": i.estimate_minutes,
+                "remaining_minutes": i.remaining_minutes,
+                "depends_on": i.depends_on,
+            } for i in open_issues],
             "counts_by_status": dict(Counter(i.status for i in issues)),
         }
 
@@ -94,23 +115,47 @@ class AgentTools:
         who = person_id or self.actor
         return [m.model_dump() for m in self.env.store.list_meetings(attendee_id=who)]
 
-    def read_transcripts(self) -> list[dict[str, Any]]:
-        """Return the meeting transcripts available so far (no sim-time cost).
+    def read_transcripts(self, since_tick: int = 0) -> list[dict[str, Any]]:
+        """List the meeting transcripts available so far (no sim-time cost).
 
-        A transcript becomes available when its meeting ends; each entry carries
-        the meeting's title and time alongside the markdown body, so the agent
-        can review what was said (status, open questions, unresolved decisions).
+        A transcript becomes available when its meeting ends. This is the cheap
+        index — meeting id, title, time, and a one-line ``preview`` — so a review
+        doesn't re-pay for every full body each time; fetch a body with
+        :meth:`read_transcript`. ``since_tick`` windows the list to transcripts
+        that became available at or after it.
         """
         now = self.env.clock.now()
         titles = {m.id: m for m in self.env.store.list_meetings()}
         out = []
         for t in self.env.store.list_transcripts(available_by=now):
+            if t.available_tick < since_tick:
+                continue
             meeting = titles.get(t.meeting_id)
+            first_line = next((ln for ln in t.body.splitlines() if ln.strip()), "")
             out.append({
                 "meeting_id": t.meeting_id,
                 "title": meeting.title if meeting else "",
                 "start_tick": meeting.start_tick if meeting else None,
                 "available_tick": t.available_tick,
-                "body": t.body,
+                "preview": first_line[:120],
             })
         return out
+
+    def read_transcript(self, meeting_id: str) -> dict[str, Any]:
+        """Return one meeting's full transcript body (no sim-time cost)."""
+        now = self.env.clock.now()
+        for t in self.env.store.list_transcripts(available_by=now):
+            if t.meeting_id == meeting_id:
+                meeting = next(
+                    (m for m in self.env.store.list_meetings() if m.id == meeting_id), None)
+                return {
+                    "meeting_id": t.meeting_id,
+                    "title": meeting.title if meeting else "",
+                    "start_tick": meeting.start_tick if meeting else None,
+                    "available_tick": t.available_tick,
+                    "body": t.body,
+                }
+        raise ToolError(
+            f"no available transcript for meeting {meeting_id!r} (has it ended?)",
+            details={"meeting_id": meeting_id},
+        )

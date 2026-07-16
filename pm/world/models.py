@@ -116,3 +116,4 @@ class LogEntry(BaseModel):
     actor: str
     kind: str
     payload: dict = Field(default_factory=dict)
+    wall_time: str = ""  # real time the row was recorded, "yy/mm/dd hh:mm:ss.mmm"

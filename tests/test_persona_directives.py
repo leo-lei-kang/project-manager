@@ -21,7 +21,7 @@ from pm.sim.events import SlackReadEvent, SlackSendEvent
 MIX = {"alice": FREE_SPIRIT, "clare": HEADS_DOWN}
 
 
-def _slack(body: str, sender: str = "pm") -> SlackSendEvent:
+def _slack(body: str, sender: str = "agent") -> SlackSendEvent:
     return SlackSendEvent(owner_id=sender, start_tick=0,
                           payload={"message_id": "m", "channel_id": "eng", "body": body})
 
@@ -46,7 +46,7 @@ def test_with_personas_mixed_assignment():
     assert by_id["alice"].persona is FREE_SPIRIT
     assert by_id["clare"].persona is HEADS_DOWN
     assert by_id["bob"].persona is CAST[1].persona  # unnamed member keeps default
-    assert by_id["pm"].persona is not FREE_SPIRIT  # non-members untouched
+    assert by_id["agent"].persona is not FREE_SPIRIT  # non-members untouched
 
 def test_with_personas_rejects_unknown_member():
     with pytest.raises(ValueError, match="unknown cast member"):

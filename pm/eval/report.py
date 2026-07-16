@@ -48,6 +48,19 @@ class PersonReport:
 
 
 @dataclass
+class EpicProgress:
+    """One epic's completion: leaf tasks done / total, and their estimate minutes."""
+
+    id: str
+    title: str
+    priority: int
+    done_tasks: int
+    total_tasks: int
+    done_minutes: int
+    total_minutes: int
+
+
+@dataclass
 class EvalReport:
     """The evaluation of one project at the moment the store was read."""
 
@@ -61,6 +74,8 @@ class EvalReport:
     total_jira_minutes: int
     people: list[PersonReport]
     remaining: list[TaskView]
+    # Per-epic completion over the Jira board (empty when the run has no epics).
+    epics: list[EpicProgress] = field(default_factory=list)
     # LLM agent usage, summed from the run's agent.jsonl (zero when absent).
     agent_llm_calls: int = 0
     agent_input_tokens: int = 0
@@ -96,8 +111,20 @@ def evaluate(
     pid = _resolve_project_id(store, project_id)
     project = store.get_project(pid)
     assert project is not None  # _resolve_project_id verified existence
-    issues = JiraRepository(store).list_issues(project_id=pid, issue_type="task")
+    repo = JiraRepository(store)
+    issues = repo.list_issues(project_id=pid, issue_type="task")
     informal = store.list_tasks()  # run-global; a run holds one project
+
+    epics = []
+    for epic in repo.list_issues(project_id=pid, issue_type="epic"):
+        subtasks = [i for i in repo.subtree(epic.id) if i.issue_type == "task"]
+        done_sub = [t for t in subtasks if t.status == "done"]
+        epics.append(EpicProgress(
+            id=epic.id, title=epic.title, priority=epic.priority,
+            done_tasks=len(done_sub), total_tasks=len(subtasks),
+            done_minutes=sum(t.estimate_minutes for t in done_sub),
+            total_minutes=sum(t.estimate_minutes for t in subtasks),
+        ))
 
     if informal:
         source = "notes"
@@ -136,6 +163,7 @@ def evaluate(
         total_jira_minutes=sum(i.estimate_minutes for i in issues),
         people=sorted(people.values(), key=lambda p: p.person_id),
         remaining=remaining,
+        epics=epics,
         agent_llm_calls=len(llm_calls),
         agent_input_tokens=sum(e.get("input_tokens", 0) for e in llm_calls),
         agent_output_tokens=sum(e.get("output_tokens", 0) for e in llm_calls),
@@ -152,6 +180,11 @@ def format_report(report: EvalReport) -> str:
         f"Jira tickets closed: {format_hours(report.closed_jira_minutes)} of "
         f"{format_hours(report.total_jira_minutes)}",
     ]
+    for e in report.epics:
+        lines.append(
+            f"Epic {e.id} (p{e.priority}) {e.title}: {e.done_tasks}/{e.total_tasks} "
+            f"tasks done, {format_hours(e.done_minutes)} of {format_hours(e.total_minutes)}"
+        )
     if report.agent_llm_calls:
         lines.append(
             f"Agent LLM usage: {report.agent_llm_calls} calls, "
@@ -184,6 +217,7 @@ def to_dict(report: EvalReport) -> dict[str, object]:
         "goal_accomplished": report.goal_accomplished,
         "closed_jira_minutes": report.closed_jira_minutes,
         "total_jira_minutes": report.total_jira_minutes,
+        "epics": [asdict(e) for e in report.epics],
         "agent": {
             "llm_calls": report.agent_llm_calls,
             "input_tokens": report.agent_input_tokens,

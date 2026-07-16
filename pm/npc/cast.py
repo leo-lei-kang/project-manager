@@ -63,7 +63,7 @@ CAST: list[CastMember] = [
                60, 240, ("launch on time",),
                ("business impact", "risk visibility"), "high-level, impatient"),
     # -- the agent under test ------------------------------------------------
-    CastMember("pm", "PM", "Project Manager", "management", "agent", False,
+    CastMember("agent", "PM", "Project Manager", "management", "agent", False,
                0, 0, ("keep the project moving",),
                ("unblock", "prioritize", "communicate"), "organized"),
 ]

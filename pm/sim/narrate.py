@@ -37,4 +37,6 @@ def format_entry(e: LogEntry) -> str:
             detail += f"  pool[{' | '.join(_brief(t) for t in p['pool'])}]"
     else:
         detail = next((str(p[k]) for k in _DETAIL_KEYS if p.get(k)), "")
-    return f"{format_tick(e.sim_tick):>10}  {e.actor:<8} {e.kind:<24} {detail}".rstrip()
+    stamp = f"[{e.wall_time}] " if e.wall_time else ""
+    return (f"{stamp}{format_tick(e.sim_tick):>10}  {e.actor:<8} "
+            f"{e.kind:<24} {detail}").rstrip()

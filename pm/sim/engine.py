@@ -89,7 +89,11 @@ class Engine:
         """
         if effect is not None:
             effect()
-        self.store.log_event(self.clock.now(), actor=actor, kind="action")
+        # Only a costed action is worth a log line ("actor spent cost minutes");
+        # zero-cost board mutations already narrate through their own effects.
+        if cost > 0:
+            self.store.log_event(self.clock.now(), actor=actor, kind="action",
+                                 payload={"cost": cost})
         return self.advance(cost)
 
     # -- asynchronous side ---------------------------------------------------

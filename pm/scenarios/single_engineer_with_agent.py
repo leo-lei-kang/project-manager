@@ -1,7 +1,7 @@
 """The "Single Engineer with Agent" scenario — a free-spirit engineer + an LLM PM.
 
 Same overloaded solo board as :mod:`pm.scenarios.single_engineer`
-(the six 40-h transcripts project tasks plus 20 h of backlog), with alice working
+(the nine 32-h transcripts project tasks plus 20 h of backlog), with alice working
 as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
 priority — so backlog work displaces project tasks and the high-priority project
 is at risk of being left over.
@@ -58,7 +58,7 @@ PROMPT = (
 
 # alice (the implementer) + the pm agent (the Slack sender). MEMBERS drives the
 # pickup hook; the agent has works=False so the pickup hook skips it.
-CAST = [c for c in _FULL_CAST if c.id in ("alice", "pm")]
+CAST = [c for c in _FULL_CAST if c.id in ("alice", "agent")]
 MEMBERS = [c.id for c in CAST if c.kind == "member"]
 
 

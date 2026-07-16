@@ -67,5 +67,10 @@ def test_agent_reads_transcripts_with_meeting_context(tmp_path):
     monday = next(t for t in seen if t["meeting_id"] == "no-jira-0")
     assert monday["title"] == "Project kickoff"
     assert monday["available_tick"] == 180  # Mon 12:00
-    assert project_brief() in monday["body"]  # the kickoff embeds the project doc
+    assert monday["preview"] and "body" not in monday  # the list is the cheap index
+    # since_tick windows the list; the full body comes from read_transcript
+    assert [t["meeting_id"] for t in tools.read_transcripts(since_tick=181)] == [
+        "no-jira-1", "no-jira-2", "no-jira-3", "no-jira-4"]
+    full = tools.read_transcript("no-jira-0")
+    assert project_brief() in full["body"]  # the kickoff embeds the project doc
     env.close()

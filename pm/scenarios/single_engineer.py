@@ -1,17 +1,19 @@
 """The "Single Engineer, Free Spirit" scenario — the overloaded solo board, unmanaged.
 
 Alice alone carries the whole "Meeting Transcripts v1" push
-(``pm/transcript/project_single_engineer.md``): six high-priority project tasks
-totalling 2400 minutes — exactly her 40-hour, meeting-free week — plus five
-low-priority backlog tickets (20 h) the week cannot also absorb. The board holds
-60 h against 40 h of capacity, so triage is the game.
+(``pm/transcript/project_single_engineer.md``), split into two epics: a
+high-priority one with nine 3-5 h project tasks totalling 1920 minutes (32 h)
+— shippable in full even around the daily 30-minute standups (37.5 h of
+working time) — and a low-priority backlog epic with five tickets (20 h) the
+week cannot also absorb. The board holds 52 h against 37.5 h of capacity, so
+triage is the game.
 
 By default alice works as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking at
 random, ignoring priority — and no one intervenes. Backlog work displaces
 project tasks, so part of the project is left over at Fri 17:00: the baseline a
 steering PM would have to rescue. Re-seed with
-``build(member_persona=PERFECT)`` to watch priority-ordered work ship the six
-project tasks (and nothing else) by exactly Fri 17:00.
+``build(member_persona=PERFECT)`` to watch priority-ordered work ship all
+nine project tasks and still close one backlog ticket.
 """
 
 from __future__ import annotations
@@ -27,7 +29,8 @@ from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import FREE_SPIRIT, Persona
 from pm.scenarios.project_board import PROJECT_ID as PROJECT_ID
 from pm.scenarios.project_board import PROJECT_NAME as PROJECT_NAME
-from pm.sim.clock import WEEK_END_TICK
+from pm.sim.clock import MINUTES_PER_WORKDAY, WEEK_END_TICK, WORKDAYS
+from pm.sim.events import MeetingEvent
 from pm.transcript import project_tasks
 from pm.world.models import Project
 
@@ -38,8 +41,9 @@ MEMBERS = [c.id for c in CAST]
 
 HIGH_PRIORITY, LOW_PRIORITY = 1, 3
 
-# The project: the six tasks from project_single_engineer.md, 2400 min = the
-# whole 40-h week. Every one must ship — they are the high-priority set.
+# The project: the nine tasks from project_single_engineer.md (3-5 h each),
+# 1920 min = 32 h. Every one must ship — they are the high-priority set, and
+# they fit the week even with the daily standups (40 h - 2.5 h of meetings).
 HIGH: list[tuple[str, int]] = [
     (t["title"], int(t["estimate_minutes"]))
     for t in project_tasks(board="single_engineer")
@@ -56,25 +60,34 @@ LOW: list[tuple[str, int]] = [
 
 
 def _seed_board(env: Env) -> None:
-    """1 epic, the project story and a backlog story, 11 tasks for alice."""
+    """Two epics — the high-priority project (fits the week) and the low-priority
+    backlog — one story each, 14 tasks for alice; plus the daily standups."""
     env.store.add_project(Project(
         id=PROJECT_ID, name=PROJECT_NAME, deadline_tick=WEEK_END_TICK))
     repo = JiraRepository(env.store)
     repo.ensure_schema()
     api = JiraApi(repo, env.engine)
 
-    epic = api.create_issue(PROJECT_ID, "epic", "Transcripts launch week", actor="alice")
-    for story_title, rows, priority in (
-        (PROJECT_NAME, HIGH, HIGH_PRIORITY),
-        ("Backlog", LOW, LOW_PRIORITY),
+    for epic_title, story_title, rows, priority in (
+        ("Transcripts launch week", PROJECT_NAME, HIGH, HIGH_PRIORITY),
+        ("Engineering backlog", "Backlog", LOW, LOW_PRIORITY),
     ):
-        story = api.create_issue(
-            PROJECT_ID, "story", story_title, parent=epic.id, actor="alice")
+        epic = api.create_issue(PROJECT_ID, "epic", epic_title, priority=priority,
+                                actor="alice")
+        story = api.create_issue(PROJECT_ID, "story", story_title, parent=epic.id,
+                                 priority=priority, actor="alice")
         for title, minutes in rows:
             api.create_issue(
                 PROJECT_ID, "task", title, parent=story.id, estimate_minutes=minutes,
                 assignee="alice", component="backend", priority=priority,
                 actor="alice")
+
+    # A 30-minute standup at 09:00 every day (2.5 h of the 40-h week).
+    for day in range(WORKDAYS):
+        env.engine.schedule(MeetingEvent(
+            owner_id="alice", start_tick=day * MINUTES_PER_WORKDAY, duration=30,
+            payload={"meeting_id": f"standup-{day}", "kind": "standup",
+                     "title": "Daily standup", "attendees": MEMBERS}))
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,

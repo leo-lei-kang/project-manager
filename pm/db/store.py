@@ -12,6 +12,7 @@ keep "one owner mutates world state" true in practice.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -87,13 +88,16 @@ class Store:
         self, sim_tick: int, actor: str, kind: str, payload: dict | None = None
     ) -> None:
         """Append an immutable record to the observability trace."""
+        # %f is microseconds; keep the first three digits for milliseconds.
+        wall_time = datetime.now().strftime("%y/%m/%d %H:%M:%S.%f")[:-3]
         self.db.execute(
-            "INSERT INTO event_log (sim_tick, actor, kind, payload_json) VALUES (?, ?, ?, ?)",
-            (sim_tick, actor, kind, json.dumps(payload or {})),
+            "INSERT INTO event_log (sim_tick, actor, kind, payload_json, wall_time) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (sim_tick, actor, kind, json.dumps(payload or {}), wall_time),
         )
         if self.on_log is not None:
             self.on_log(LogEntry(sim_tick=sim_tick, actor=actor, kind=kind,
-                                 payload=payload or {}))
+                                 payload=payload or {}, wall_time=wall_time))
 
     def read_log(self, limit: int | None = None) -> list[LogEntry]:
         sql = "SELECT * FROM event_log ORDER BY id"
@@ -106,6 +110,8 @@ class Store:
                 actor=r["actor"],
                 kind=r["kind"],
                 payload=json.loads(r["payload_json"]),
+                # Tolerate rows from databases created before the column existed.
+                wall_time=r["wall_time"] if "wall_time" in r.keys() else "",
             )
             for r in self.db.query_all(sql)
         ]
