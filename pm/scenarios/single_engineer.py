@@ -3,17 +3,17 @@
 Alice alone carries the whole "Meeting Transcripts v1" push
 (``pm/transcript/project_single_engineer.md``), split into two epics: a
 high-priority one with eight 3-5 h project tasks totalling 1740 minutes (29 h)
-— shippable in full even around the daily 30-minute standups (37.5 h of
-working time) — and a low-priority backlog epic with six tickets (23 h) the
-week cannot also absorb. The board holds 52 h against 37.5 h of capacity, so
-triage is the game.
+— shippable in full even around the daily 30-minute standups and a 4-hour OOO
+on Tuesday morning (33.5 h of working time) — and a low-priority backlog epic
+with six tickets (23 h) the week cannot also absorb. The board holds 52 h
+against 33.5 h of capacity, so triage is the game.
 
 By default alice works as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking at
 random, ignoring priority — and no one intervenes. Backlog work displaces
 project tasks, so part of the project is left over at Fri 17:00: the baseline a
 steering PM would have to rescue. Re-seed with
 ``build(member_persona=PERFECT)`` to watch priority-ordered work ship all
-eight project tasks and still close two backlog tickets.
+eight project tasks and still close one backlog ticket.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pm.npc.persona import FREE_SPIRIT, Persona
 from pm.scenarios.project_board import PROJECT_ID as PROJECT_ID
 from pm.scenarios.project_board import PROJECT_NAME as PROJECT_NAME
 from pm.sim.clock import MINUTES_PER_WORKDAY, WEEK_END_TICK, WORKDAYS
-from pm.sim.events import MeetingEvent
+from pm.sim.events import MeetingEvent, OOOEvent
 from pm.transcript import project_tasks
 from pm.world.models import Project
 
@@ -90,6 +90,11 @@ def _seed_board(env: Env) -> None:
             owner_id="alice", start_tick=day * MINUTES_PER_WORKDAY, duration=30,
             payload={"meeting_id": f"standup-{day}", "kind": "standup",
                      "title": "Daily standup", "attendees": MEMBERS}))
+
+    # Alice is out Tuesday 09:00-13:00 (4 h); that day's standup is skipped.
+    env.engine.schedule(OOOEvent(
+        owner_id="alice", start_tick=MINUTES_PER_WORKDAY, duration=240,
+        payload={"reason": "appointment"}))
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,

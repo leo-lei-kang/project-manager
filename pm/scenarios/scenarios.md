@@ -9,9 +9,9 @@ is the observed `pm eval` result (seed 42).
 - `single_engineer` — alice alone carries the whole Meeting
   Transcripts v1 push (`pm/transcript/project_single_engineer.md`), split into
   two epics: a high-priority one with eight 3-5 h project tasks (29 h — it
-  *can* ship in full around the daily 30-min standups, 37.5 h of working time)
-  and a low-priority backlog epic with six tickets (23 h) the week cannot
-  also absorb. The verdict
+  *can* ship in full around the daily 30-min standups and a 4-h Tuesday-morning
+  OOO, 33.5 h of working time) and a low-priority backlog epic with six
+  tickets (23 h) the week cannot also absorb. The verdict
   is PROJECT NOT DONE by design (52 h board); the success criterion is "the
   whole 29-h project ships", with whatever is left listed under the eval's
   Remaining section. Personas default to `free_spirit` (backlog picks displace
@@ -87,7 +87,7 @@ plus the hours of Jira tickets closed — no deadline check.
 
 | # | Cast | Personas | Verified outcome |
 |---|------|----------|------------------|
-| 1 | single engineer | `free_spirit` | 10/14 done — **3 project tasks left** at Fri 17:00, displaced by backlog picks |
+| 1 | single engineer | `free_spirit` | 9/14 done — **4 project tasks left** at Fri 17:00, displaced by backlog picks |
 | 2 | two engineers | alice=`free_spirit`, clare=`heads_down` | **PROJECT NOT DONE** — 8/16; no meetings on this board, so clare's `in_review` work never closes and handoffs stall |
 
 ## Running them

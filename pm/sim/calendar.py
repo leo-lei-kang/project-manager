@@ -8,7 +8,10 @@ is reserved, conflicts are resolved by **priority (by event type)**:
     work moves to after the meeting; work already *in progress* has its duration
     extended by the meeting's length (it pauses and resumes, finishing later);
   * lower-or-equal-priority incoming (work vs a meeting, or work vs earlier work)
-    **yields** — it is pushed to start after the blocking window.
+    **yields** — it is pushed to start after the blocking window;
+  * a **meeting** never moves: blocked by (or bumped behind) an OOO or an earlier
+    meeting, it is **skipped** (cancelled, logged ``meeting.skipped``) — a missed
+    standup doesn't shift to the afternoon. Only work and reads defer.
 
 Instantaneous events (emails, slack) are not in
 ``EVENT_PRIORITY`` and reserve nothing. They are never blocked, with one
@@ -45,11 +48,22 @@ def people_for(event: "Event") -> set[str]:
     return {event.owner_id}
 
 
+def _skip_meeting(store: "Store", event: "Event", now: int) -> None:
+    """Cancel a meeting that lost its slot — a missed meeting is skipped, never moved."""
+    event.status = EventStatus.CANCELLED
+    store.reschedule_event(event)
+    store.clear_occupancy(event.id)
+    store.log_event(now, actor=event.owner_id, kind="meeting.skipped",
+                    payload=event.payload)
+
+
 def reserve(store: "Store", event: "Event", now: int) -> None:
     """Place ``event`` on its people's calendars, resolving conflicts by priority.
 
-    May shift ``event.start_tick`` (if it must yield) and may reschedule other events
-    (if it bumps them). Assumes ``event`` is already persisted (has an ``id``).
+    May shift ``event.start_tick`` (if it must yield), may reschedule other events
+    (if it bumps them), and may *cancel* the event or a bumped one when it is a
+    meeting (meetings are skipped, never moved). Assumes ``event`` is already
+    persisted (has an ``id``).
     """
     if event.type is EventType.SLACK_READ:
         # Nobody reads Slack mid-meeting: a read yields past the reader's
@@ -81,6 +95,9 @@ def reserve(store: "Store", event: "Event", now: int) -> None:
         ]
         if not blockers:
             break
+        if event.type is EventType.MEETING:
+            _skip_meeting(store, event, now)
+            return
         event.start_tick = max(o["end_tick"] for o in blockers)
 
     # 2) Commit our (possibly shifted) placement and lay our blocks.
@@ -108,6 +125,8 @@ def reserve(store: "Store", event: "Event", now: int) -> None:
             lprio = EVENT_PRIORITY[loser.type]
             for pid in sorted(people_for(loser)):
                 store.add_occupancy(pid, loser, lprio)
+        elif loser.type is EventType.MEETING:
+            _skip_meeting(store, loser, now)
         else:
             # Not yet started: move it to begin after our window, then re-resolve.
             store.clear_occupancy(loser.id)

@@ -8,7 +8,7 @@ from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
-from pm.sim.events import MeetingEvent, SlackSendEvent, JiraTicketEvent
+from pm.sim.events import MeetingEvent, OOOEvent, SlackSendEvent, JiraTicketEvent
 from pm.world.models import Person, Project
 
 
@@ -89,6 +89,27 @@ def test_half_open_boundary_no_bump(env):
     env.engine.schedule(_meeting(start=60, dur=30))     # [60,90)
     env.engine.schedule(_work(start=90, dur=30))        # [90,120) touches but doesn't overlap
     assert _row(env.store, "jira_ticket")["start_tick"] == 90  # not pushed
+
+
+def test_meeting_blocked_by_ooo_is_skipped_not_deferred(env):
+    # A meeting landing inside an OOO block is cancelled — a missed standup
+    # doesn't move to the afternoon. Only work (and reads) defer.
+    env.engine.schedule(OOOEvent(owner_id="priya", start_tick=60, duration=240))
+    env.engine.schedule(_meeting(start=120, dur=30))    # inside the OOO window
+    m = _row(env.store, "meeting")
+    assert m["status"] == "cancelled"
+    assert m["start_tick"] == 120                       # never moved
+    env.engine.advance_to(400)
+    kinds = [e.kind for e in env.store.read_log()]
+    assert "meeting.skipped" in kinds
+    assert "meeting.start" not in kinds
+
+
+def test_ooo_skips_planned_meeting_it_overlaps(env):
+    # The bump direction: an OOO scheduled over a planned meeting skips it.
+    env.engine.schedule(_meeting(start=120, dur=30))
+    env.engine.schedule(OOOEvent(owner_id="priya", start_tick=60, duration=240))
+    assert _row(env.store, "meeting")["status"] == "cancelled"
 
 
 # -- pause & resume (active work) --------------------------------------------

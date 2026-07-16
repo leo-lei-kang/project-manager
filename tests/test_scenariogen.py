@@ -99,20 +99,21 @@ def test_ooo_is_a_top_priority_occupying_type():
     ]
 
 
-def test_meeting_defers_around_an_ooo_span(tmp_path):
+def test_meeting_inside_an_ooo_span_is_skipped(tmp_path):
     from pm.env.environment import Env
+    from pm.sim.events import EventStatus
 
     env = Env.make(run_id="ooo", seed=1, force=True, root=tmp_path)
     seed_cast(env.store)
     # Alice is OOO for a full day starting Mon 09:00.
     env.engine.schedule(OOOEvent(owner_id="alice", start_tick=0, duration=days(1),
                                  payload={"reason": "PTO"}))
-    # A meeting with Alice, scheduled inside her OOO window.
+    # A meeting with Alice, scheduled inside her OOO window: skipped, not moved.
     mtg = MeetingEvent(owner_id="agent", start_tick=hours(2), duration=30,
                             payload={"meeting_id": "m1", "attendees": ["agent", "alice"]})
     env.engine.schedule(mtg)
-    # The calendar deferred the meeting to start at/after the OOO span ends.
-    assert mtg.start_tick >= days(1)
+    assert mtg.status is EventStatus.CANCELLED
+    assert mtg.start_tick == hours(2)  # never deferred
     env.close()
 
 

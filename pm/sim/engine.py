@@ -28,7 +28,7 @@ from pm.db.store import Store
 from pm.sim import calendar
 from pm.sim.activity import ActivityManager
 from pm.sim.clock import SimClock
-from pm.sim.events import Event
+from pm.sim.events import Event, EventStatus
 
 
 class Engine:
@@ -63,10 +63,12 @@ class Engine:
         # Resolve calendar contention (a durative event may be shifted here, or may
         # bump others). Instantaneous events reserve nothing and are untouched.
         calendar.reserve(self.store, event, now)
-        # Logged after reserve so start_tick reflects any calendar shift.
-        self.store.log_event(now, actor=event.owner_id, kind="event.scheduled",
-                             payload={"type": event.type.value,
-                                      "start_tick": event.start_tick})
+        # Logged after reserve so start_tick reflects any calendar shift. A
+        # blocked meeting is cancelled there instead (logged meeting.skipped).
+        if event.status is not EventStatus.CANCELLED:
+            self.store.log_event(now, actor=event.owner_id, kind="event.scheduled",
+                                 payload={"type": event.type.value,
+                                          "start_tick": event.start_tick})
         return event_id
 
     def pending_count(self) -> int:
