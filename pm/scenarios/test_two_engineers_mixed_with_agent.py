@@ -1,23 +1,22 @@
-"""The "Single Engineer with Agent" scenario — a free-spirit engineer + an LLM PM.
+"""The "Two Engineers, Mixed, with Agent" scenario — the stalling pair + an LLM PM.
 
-Same overloaded solo board as :mod:`pm.scenarios.test_single_engineer_free_spirit`
-(the six 40-h transcripts project tasks plus 20 h of backlog), with alice working
-as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
-priority — so backlog work displaces project tasks and the high-priority project
-is at risk of being left over.
+Same zero-slack cross-blocked board as :mod:`pm.scenarios.test_two_engineers_mixed`
+(alice :data:`~pm.npc.persona.FREE_SPIRIT`, clare :data:`~pm.npc.persona.HEADS_DOWN`),
+so unmanaged the just-in-time handoffs stall and the week misses — here an LLM PM
+acts *during* the run to rescue it.
 
-The agent-under-test (``pm``) is an **LLM** acting *during* the run: every four
-sim-hours the review hook (:func:`pm.agent.hook.llm_review_hook`) hands the model
-the agent tools; it reads the board and may post one short ``#eng`` message using
-its two levers (naming a person closes their in-review work; "please pick up <KEY>"
-preempts the assignee onto that ticket, resuming the dropped one afterwards). Every model round-trip and tool call is logged
-with token usage to ``runs/<run_id>/agent.jsonl``.
+The agent-under-test (``pm``) reviews every four sim-hours: the review hook
+(:func:`pm.agent.hook.llm_review_hook`) hands the model the agent tools; it reads
+the board and may post one short ``#eng`` message using its two levers (naming a
+person closes their in-review work; "please pick up <KEY>" preempts the assignee
+onto that ticket, resuming the dropped one afterwards). Every model round-trip
+and tool call is logged with token usage to ``runs/<run_id>/agent.jsonl``.
 
-``build(member_persona=...)`` seeds alice with the given persona (default:
-:data:`~pm.npc.persona.FREE_SPIRIT`). ``agent_review_hook(env)`` builds the LLM
-review hook — under ``pm sim`` it needs ``OPENROUTER_API_KEY`` in ``.env``
-(model from ``OPENROUTER_MODEL``, default :data:`DEFAULT_MODEL`); tests inject a
-fake ``client``.
+``build(member_persona=...)`` seeds the engineers with the given personas
+(default: the stalling mix). ``agent_review_hook(env)`` builds the LLM review
+hook — under ``pm sim`` it needs ``OPENROUTER_API_KEY`` in ``.env`` (model from
+``OPENROUTER_MODEL``, default :data:`DEFAULT_MODEL`); tests inject a fake
+``client``.
 """
 
 from __future__ import annotations
@@ -31,13 +30,13 @@ from pm.agent.hook import llm_review_hook
 from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast, with_personas
-from pm.npc.persona import FREE_SPIRIT, Persona
-from pm.scenarios.test_single_engineer_free_spirit import PROJECT_ID, _seed_board
+from pm.npc.persona import Persona
+from pm.scenarios.test_two_engineers_mixed import MIXED, PROJECT_ID, _seed_board
 
 if TYPE_CHECKING:
     from pm.sim.simulation import Simulation
 
-SCENARIO = "test_single_engineer_with_agent"
+SCENARIO = "test_two_engineers_mixed_with_agent"
 CHANNEL = "eng"
 REVIEW_PERIOD = 240  # review every four sim-hours (60 min * 4)
 DEFAULT_MODEL = "openai/gpt-5.5-pro"
@@ -53,9 +52,9 @@ PROMPT = (
     "steering, post nothing. Then reply with a one-line summary and no tool call."
 )
 
-# alice (the implementer) + the pm agent (the Slack sender). MEMBERS drives the
-# pickup hook; the agent has works=False so the pickup hook skips it.
-CAST = [c for c in _FULL_CAST if c.id in ("alice", "pm")]
+# alice + clare (the implementers) + the pm agent (the Slack sender). MEMBERS
+# drives the pickup hook; the agent has works=False so the pickup hook skips it.
+CAST = [c for c in _FULL_CAST if c.id in ("alice", "clare", "pm")]
 MEMBERS = [c.id for c in CAST if c.kind == "member"]
 
 
@@ -78,8 +77,9 @@ def agent_review_hook(
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
-          force: bool = True, member_persona: Persona | Mapping[str, Persona] = FREE_SPIRIT) -> Env:
-    """Create the run: seed alice (+ the pm agent) and the overloaded board, snapshot."""
+          force: bool = True,
+          member_persona: Persona | Mapping[str, Persona] = MIXED) -> Env:
+    """Create the run: seed the engineers (+ the pm agent) and the board, snapshot."""
     env = Env.make(SCENARIO, run_id, seed, force=force, root=root)
     seed_cast(env.store, cast=with_personas(CAST, member_persona))
     env.store.db.execute(
@@ -91,5 +91,5 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
 
 if __name__ == "__main__":
     build()
-    print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (a free-spirit engineer "
-          "while the LLM pm agent reviews the board every four sim-hours).")
+    print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (a stalling mixed-persona "
+          "pair while the LLM pm agent reviews the board every four sim-hours).")

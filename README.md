@@ -47,7 +47,7 @@ pm/
   env/          # Env facade over store + sim kernel (make/load/reset/db)
   eval/         # deterministic evaluation: project completion + closed Jira hours
   viz/          # static-HTML renderers: per-person calendars, ticket week-timeline
-  scenarios/    # code-seeded scenarios (team_with_jira, test_two_engineers, test_single_engineer) + generator
+  scenarios/    # code-seeded scenarios (team_no_jira, test_two_engineers_mixed, test_single_engineer_free_spirit) + generator
   cli.py        # `pm sim` / `pm eval` / `pm viz`
 examples/       # runnable demos (see Examples below)
 tests/          # pytest suite covering db, sim, jira, npc, agent, env, scenarios
@@ -85,22 +85,22 @@ Every command takes a single `--scenario`, whose name is the run id and output
 folder — all results for a scenario live under `runs/<scenario>/`.
 
 ```bash
-# Build a scenario run and simulate its work week -> runs/team_with_jira/{world.db, seed.db}.
-uv run pm sim --scenario team_with_jira
+# Build a scenario run and simulate its work week -> runs/test_two_engineers_mixed/{world.db, seed.db}.
+uv run pm sim --scenario test_two_engineers_mixed
 
-# Evaluate the outcome (also written to runs/team_with_jira/eval.json).
-uv run pm eval --scenario team_with_jira
+# Evaluate the outcome (also written to runs/test_two_engineers_mixed/eval.json).
+uv run pm eval --scenario test_two_engineers_mixed
 
 # Render the ticket week-timeline + per-person calendars to static HTML:
-# writes runs/team_with_jira/{calendars,jira_tasks}.html.
-uv run pm viz --scenario team_with_jira
+# writes runs/test_two_engineers_mixed/{calendars,jira_tasks}.html.
+uv run pm viz --scenario test_two_engineers_mixed
 
 # Print the run's sim-time timeline (events, NPC decisions, agent calls).
-uv run pm log --scenario team_with_jira
+uv run pm log --scenario test_two_engineers_mixed
 
 # Inspect the database directly.
-uv run sqlite3 runs/team_with_jira/world.db '.tables'
-uv run sqlite3 runs/team_with_jira/world.db 'SELECT * FROM meta;'
+uv run sqlite3 runs/test_two_engineers_mixed/world.db '.tables'
+uv run sqlite3 runs/test_two_engineers_mixed/world.db 'SELECT * FROM meta;'
 ```
 
 ## Running the simulation
@@ -109,8 +109,8 @@ The quickest way is `pm sim` — build a scenario run and simulate its work week
 (Mon 09:00 → Fri 17:00, NPC coworkers working the board) in one command:
 
 ```bash
-uv run pm sim --scenario team_with_jira                  # build + simulate -> runs/team_with_jira/
 uv run pm sim --scenario test_two_engineers_mixed    # a mixed-persona board that misses the week
+uv run pm sim --scenario team_no_jira                # a week tracked only in meeting notes
 # -> prints the simulated span (Mon 09:00 -> Fri 17:00) and the events fired.
 ```
 
@@ -119,17 +119,14 @@ input — there is no persona flag; **each scenario bakes in its own personas**.
 
 | Board | Stresses |
 |----------|----------|
-| `team_with_jira` | a capacity-saturated board the team can *barely* finish in order |
-| `test_two_engineers` | two engineers splitting the transcripts project; tickets cross-block just-in-time |
-| `test_single_engineer` | one engineer, the 40-h transcripts project + 20 h of backlog — triage decides if it ships |
+| `test_two_engineers_mixed` | two engineers splitting the transcripts project; tickets cross-block just-in-time |
+| `test_single_engineer_free_spirit` | one engineer, the 40-h transcripts project + 20 h of backlog — triage decides if it ships |
+| `team_no_jira` | the five-member team's week tracked only in meeting notes; the Jira board stays empty |
 
 Each board ships as self-contained scenarios — a baseline persona and a
 misbehaving-persona variant. The verified persona configurations (each runnable as
 `pm sim --scenario <name>`) are cataloged with their outcomes in
 [`pm/scenarios/scenarios.md`](pm/scenarios/scenarios.md).
-
-For a per-day progress report with narration, `examples/run_team_with_jira.py` does
-the same and persists the finished run to `runs/team_with_jira/`.
 
 The same loop in code, for any scenario:
 
@@ -137,13 +134,13 @@ The same loop in code, for any scenario:
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.behavior import assignee_pickup_hook
-from pm.scenarios import team_with_jira          # or test_two_engineers
+from pm.scenarios import test_two_engineers_mixed   # or test_single_engineer_free_spirit
 from pm.sim.simulation import Simulation
 
-env = team_with_jira.build()                     # seed cast + board + meetings
+env = test_two_engineers_mixed.build()              # seed cast + board
 api = JiraApi(JiraRepository(env.store), env.engine)
-Simulation(env).run(on_tick=assignee_pickup_hook(api, team_with_jira.MEMBERS,
-                                                 team_with_jira.PROJECT_ID))
+Simulation(env).run(on_tick=assignee_pickup_hook(api, test_two_engineers_mixed.MEMBERS,
+                                                 test_two_engineers_mixed.PROJECT_ID))
 env.close()
 ```
 
@@ -162,19 +159,19 @@ done — there is no deadline check. Separately, the report sums the hours of
 Jira tickets closed:
 
 ```bash
-uv run pm eval --scenario team_with_jira          # human-readable report (+ runs/team_with_jira/eval.json)
-uv run pm eval --scenario team_with_jira --json   # the same report as JSON on stdout
-uv run pm eval --scenario team_with_jira --project GA   # pick a project explicitly
+uv run pm eval --scenario test_two_engineers_mixed          # human-readable report (+ runs/test_two_engineers_mixed/eval.json)
+uv run pm eval --scenario test_two_engineers_mixed --json   # the same report as JSON on stdout
+uv run pm eval --scenario test_two_engineers_mixed --project MT   # pick a project explicitly
 ```
 
 ```
-Project GA — Live Transcription GA
-Goal: PROJECT DONE — 66/66 tasks done (source: board)
-Jira tickets closed: 176.25h of 176.25h
+Project MT — Meeting Transcripts v1
+Goal: PROJECT NOT DONE — 8/16 tasks done (source: board)
+Jira tickets closed: 40h of 80h
 By person:
   ...per-person done/remaining breakdown, one line per task...
 Remaining:
-  none
+  ...one line per unfinished task...
 ```
 
 In code, the same evaluation is `pm.eval`'s pure functions over any `Store`:
@@ -183,7 +180,7 @@ In code, the same evaluation is `pm.eval`'s pure functions over any `Store`:
 from pm.db.store import Store
 from pm.eval import evaluate, format_report
 
-store = Store.open("runs/team_with_jira/world.db")
+store = Store.open("runs/test_two_engineers_mixed/world.db")
 print(format_report(evaluate(store)))        # or evaluate(store).goal_accomplished
 store.close()
 ```
@@ -197,10 +194,6 @@ do, and clean up after themselves — for example:
 ```bash
 uv run python examples/run_week.py   # the full Mon->Fri sim loop, per-day report
 ```
-
-The exception: `run_team_with_jira.py` deliberately persists its run to
-`runs/team_with_jira/` so the result can be inspected and evaluated (see
-[Running the evaluation](#running-the-evaluation)).
 
 ## Agent
 

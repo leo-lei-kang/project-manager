@@ -12,7 +12,7 @@ is reserved, conflicts are resolved by **priority (by event type)**:
 
 Instantaneous events (emails, slack) are not in
 ``EVENT_PRIORITY`` and reserve nothing, so they are never blocked. All resolution
-happens at reserve time (called from the scheduler), so the engine simply runs
+happens at reserve time (called from ``Engine.schedule``), so the engine simply runs
 events on their resolved schedule — there is no runtime preemption.
 """
 

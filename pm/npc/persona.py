@@ -1,7 +1,7 @@
 """Behavioral personas — how a coworker works the board, not just who they are.
 
 A :class:`Persona` is a small set of composable trait flags read back by the
-scheduling hooks (:mod:`pm.npc.behavior`) and the reactions (:mod:`pm.npc.reactions`)
+NPC component (:mod:`pm.sim.npc` — the ``WorkDriver`` and the reactions)
 to shape *what* an NPC does. It is folded into ``Person.persona`` JSON by
 :func:`pm.npc.cast.seed_cast` (under the ``"behavior"`` key), so it lives in
 SQLite and replays deterministically like everything else.
@@ -42,7 +42,7 @@ class Persona:
       Slack message names the person.
     * ``announces_progress`` — when ``True`` the NPC posts a Slack status update
       as it picks up work (raising the team's visibility). Requires a
-      ``status_channel`` wired into the pickup hook (:mod:`pm.npc.behavior`);
+      ``status_channel`` wired into the ``WorkDriver`` (:mod:`pm.sim.npc`);
       a no-op without one.
     """
 

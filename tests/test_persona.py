@@ -16,7 +16,7 @@ import pytest
 from pm.env import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import WorkDriver
+from pm.sim.npc import WorkDriver
 from pm.npc.cast import CastMember, seed_cast
 from pm.npc.persona import (
     HEADS_DOWN,
@@ -25,7 +25,6 @@ from pm.npc.persona import (
     Persona,
     from_person,
 )
-from pm.npc.reactions import close_and_wake_on_tick
 from pm.sim.events import MeetingEvent, SlackSendEvent
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
@@ -53,7 +52,7 @@ def _drive(env: Env, driver: WorkDriver, *, closes: bool = False) -> None:
     """Kickoff sweep + completion-driven week (optionally with the close reactions)."""
     env.engine.activities.on_activity_done = driver.on_activity_done
     driver.sweep(env.engine)
-    Simulation(env).run(on_tick=close_and_wake_on_tick(driver) if closes else None)
+    Simulation(env).run(on_tick=driver.on_tick if closes else None)
 
 
 def test_persona_round_trips_through_seed_cast(env: Env) -> None:
@@ -112,7 +111,7 @@ def test_slack_mention_closes_in_review_work(env: Env) -> None:
     driver = WorkDriver(api, ["alice"], "checkout")
     env.engine.activities.on_activity_done = driver.on_activity_done
     driver.sweep(env.engine)
-    hook = close_and_wake_on_tick(driver)
+    hook = driver.on_tick
     sim = Simulation(env)
     # Drive tick-by-tick (mirroring Simulation.run) so we can observe the state
     # after the unrelated ping but before the mention.

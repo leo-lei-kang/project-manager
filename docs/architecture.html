@@ -164,13 +164,13 @@
   <thead><tr><th>Module</th><th>Group</th><th>Responsibility</th></tr></thead>
   <tbody>
     <tr><td><span class="path">pm/sim/</span></td><td><span class="chip sim">sim core</span></td>
-        <td>Clock, events, engine, scheduler, per-NPC calendar (occupancy contention), activities, and the week loop (<code>simulation.py</code>).</td></tr>
+        <td>Clock, events, the engine (event queue + schedule + the per-minute loop), per-NPC calendar (occupancy contention), activities, the NPC component (<code>npc.py</code> — WorkDriver + reactions), and the week loop (<code>simulation.py</code>).</td></tr>
     <tr><td><span class="path">pm/db/</span></td><td><span class="chip db">persistence</span></td>
         <td><code>database.py</code> (raw sqlite3 wrapper), <code>store.py</code> (the only typed mutation interface), <code>schema.sql</code>.</td></tr>
     <tr><td><span class="path">pm/world/</span></td><td><span class="chip db">persistence</span></td>
         <td>Pydantic entities: Person, Project, Channel, Message, Email, Meeting, Transcript, Task (informal), Document, LogEntry.</td></tr>
     <tr><td><span class="path">pm/npc/</span></td><td><span class="chip npc">npc</span></td>
-        <td>Cast roster, personas, per-tick work-pickup hooks (<code>behavior.py</code>), and per-event reactions.</td></tr>
+        <td>Cast roster + persona presets. The behavior/reactions component itself lives in the sim: <span class="path">pm/sim/npc.py</span>.</td></tr>
     <tr><td><span class="path">pm/agent/</span></td><td><span class="chip agent">agent</span></td>
         <td>The PM agent-under-test: <code>AgentTools</code> capability surface + the in-process OpenRouter LLM loop.</td></tr>
     <tr><td><span class="path">pm/jira/</span></td><td><span class="chip jira">jira</span></td>
@@ -239,43 +239,26 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <line class="edge" x1="506" y1="64" x2="420" y2="108" marker-end="url(#arr)"/>
 
   <!-- Row C: on_tick hooks -->
-  <rect class="bx-npc" x="16" y="186" width="210" height="64"/>
-  <text class="t" x="121" y="206" text-anchor="middle">WorkDriver — npc/behavior.py</text>
-  <text class="s" x="121" y="222" text-anchor="middle">kickoff + completion sweeps:</text>
-  <text class="s" x="121" y="237" text-anchor="middle">next ready issue per persona</text>
-
-  <line class="edge" x1="240" y1="158" x2="150" y2="184" marker-end="url(#arr)"/>
-  <text class="el" x="180" y="172">on_tick: closes → re-sweep</text>
+  <path class="edge" d="M 460 158 C 640 170 700 240 702 350 C 703 440 660 478 618 496" marker-end="url(#arr)"/>
+  <text class="el" x="716" y="372" text-anchor="middle" transform="rotate(90 716 372)">on_tick: closes → re-sweep</text>
 
   <!-- Row D: Engine -->
-  <rect class="bx-out" x="16" y="290" width="660" height="180"/>
-  <text class="t" x="30" y="312">Engine — sim/engine.py</text>
+  <rect class="bx-out" x="16" y="290" width="660" height="280"/>
+  <text class="t" x="30" y="312">sim — pm/sim/ (Engine · events · activities · NPC component)</text>
 
-  <rect class="bx-sim" x="32" y="326" width="300" height="64"/>
-  <text class="t" x="182" y="344" text-anchor="middle">Scheduler → calendar.reserve</text>
-  <text class="s" x="182" y="360" text-anchor="middle">order (start_tick, seq) · yield / bump by priority</text>
-  <text class="s" x="182" y="375" text-anchor="middle">OOO 200 &gt; MEETING 100 &gt; JIRA_TICKET 20</text>
-
-  <rect class="bx-sim" x="352" y="326" width="150" height="64"/>
-  <text class="t" x="427" y="344" text-anchor="middle">perform_action</text>
-  <text class="s" x="427" y="360" text-anchor="middle">sync: effect now,</text>
-  <text class="s" x="427" y="375" text-anchor="middle">then advance(cost)</text>
-
-  <rect class="bx-sim" x="522" y="326" width="138" height="64"/>
-  <text class="t" x="591" y="344" text-anchor="middle">step()</text>
-  <text class="s" x="591" y="360" text-anchor="middle">async: +1 min — start</text>
-  <text class="s" x="591" y="375" text-anchor="middle">due, complete finished</text>
+  <rect class="bx-sim" x="32" y="326" width="628" height="64"/>
+  <text class="t" x="346" y="344" text-anchor="middle">Engine — sim/engine.py (event queue + clock)</text>
+  <text class="s" x="346" y="360" text-anchor="middle">schedule → calendar.reserve — order (start_tick, seq) · yield / bump: OOO 200 &gt; MEETING 100 &gt; JIRA 20</text>
+  <text class="s" x="346" y="375" text-anchor="middle">perform_action — sync: effect now, then advance(cost) · step() — async: +1 min, start due, complete finished</text>
 
   <rect class="bx-act" x="352" y="402" width="308" height="52"/>
   <text class="t" x="506" y="422" text-anchor="middle">ActivityManager — sim/activity.py</text>
   <text class="s" x="506" y="438" text-anchor="middle">one started per attender · interrupt/resume · on_activity_done → WorkDriver</text>
 
-  <line class="edge" x1="121" y1="250" x2="140" y2="324" marker-end="url(#arr)"/>
-  <text class="el" x="150" y="278">request(jira_work) · schedule(Event)</text>
   <line class="edge" x1="450" y1="158" x2="580" y2="324" marker-end="url(#arr)"/>
   <text class="el" x="500" y="240">step() every minute</text>
   <line class="edge" x1="700" y1="222" x2="504" y2="345" marker-end="url(#arr)"/>
-  <text class="el" x="530" y="300">send_slack → perform_action(cost=1)</text>
+  <text class="el" x="530" y="300">send_slack: action schedules a slack.send event</text>
   <line class="edge" x1="591" y1="390" x2="591" y2="400" marker-end="url(#arr)"/>
 
   <!-- Row E: events + reactions -->
@@ -285,15 +268,17 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <text class="s" x="231" y="549" text-anchor="middle">transcripts · informal tasks · Jira transitions (via JiraApi)</text>
 
   <rect class="bx-npc" x="470" y="498" width="206" height="64"/>
-  <text class="t" x="573" y="518" text-anchor="middle">reactions.react</text>
-  <text class="s" x="573" y="534" text-anchor="middle">npc/reactions.py — chaining,</text>
-  <text class="s" x="573" y="549" text-anchor="middle">standup closes, Slack directives</text>
+  <text class="t" x="573" y="518" text-anchor="middle">NPC component — sim/npc.py</text>
+  <text class="s" x="573" y="534" text-anchor="middle">WorkDriver: kickoff + completion sweeps</text>
+  <text class="s" x="573" y="549" text-anchor="middle">reactions: closes · directives</text>
 
   <line class="edge" x1="231" y1="470" x2="231" y2="496" marker-end="url(#arr)"/>
   <text class="el" x="240" y="488">start() / done()</text>
   <line class="edge" x1="446" y1="530" x2="468" y2="530" marker-end="url(#arr)"/>
-  <line class="edge" x1="600" y1="496" x2="600" y2="472" marker-end="url(#arr)"/>
-  <text class="el" x="608" y="488">schedule follow-ups</text>
+  <line class="edge" x1="600" y1="496" x2="600" y2="456" marker-end="url(#arr)"/>
+  <text class="el" x="608" y="481">sweep → request(jira_work)</text>
+  <line class="edge" x1="500" y1="456" x2="500" y2="494" marker-end="url(#arr)"/>
+  <text class="el" x="492" y="478" text-anchor="end">on_activity_done</text>
 
   <!-- Row F: SQLite -->
   <rect class="bx-db" x="16" y="592" width="928" height="72"/>
@@ -314,9 +299,11 @@ Scenario hooks fire every simulated minute; events carry all durative work; SQLi
   <line class="edge dash" x1="166" y1="664" x2="166" y2="692" marker-end="url(#arr)"/>
   <line class="edge dash" x1="511" y1="664" x2="511" y2="692" marker-end="url(#arr)"/>
 </svg>
-<figcaption>The driving loop (CLI → scenario → runner → Simulation → Engine → Store) and the agent path
-(LLM → AgentTools, in-process). Reads are free; the only agent mutation, <code>send_slack</code>, goes through
-<code>perform_action</code> and therefore costs sim-time.</figcaption>
+<figcaption>The dashed rectangle is the sim: engine, events, activities, and the NPC component
+(behavior + reactions, one module) live inside it. The runner wires it up (kickoff sweep; on_tick
+closes) and the agent path (LLM → AgentTools, in-process) meets it at the engine. Reads are free;
+the only agent mutation, <code>send_slack</code>, goes through <code>perform_action</code> and
+therefore costs sim-time.</figcaption>
 </figure>
 
 <div class="legend">
@@ -464,12 +451,13 @@ its ticket work is an <em>activity</em>), scenario seeding (meetings, boards), t
 builders (one builder per event type), reactions (follow-up work), and the agent — whose
 <code>send_slack</code> tool schedules a <code>SlackSendEvent</code> directly.</p>
 
-<h3>Scheduler &amp; calendar (contention)</h3>
+<h3>Scheduling &amp; calendar (contention)</h3>
 <div class="cols">
   <div class="card">
-    <h4>Scheduler — <span class="path">pm/sim/scheduler.py</span></h4>
+    <h4>Engine.schedule — <span class="path">pm/sim/engine.py</span></h4>
     <ul>
-      <li>The <code>event</code> table <em>is</em> the queue — no parallel in-memory heap.</li>
+      <li>The <code>event</code> table <em>is</em> the queue — no parallel in-memory heap, no
+          separate scheduler component: queueing lives on the engine.</li>
       <li><code>schedule(event)</code> rejects past start ticks, stamps a monotonic <code>seq</code>
           (resumed from <code>max_event_seq()+1</code>) and <code>created_tick</code>, persists, then calls
           <code>calendar.reserve</code>.</li>
@@ -495,7 +483,8 @@ builders (one builder per event type), reactions (follow-up work), and the agent
 <!-- ================================================================== -->
 <h2 id="simwork">5. Sim work: the sync / async boundary <span class="path">pm/sim/engine.py</span></h2>
 
-<p>The engine owns time progression, and this is the deliverable's central systems choice:
+<p>The engine owns the event queue <em>and</em> time progression (there is no separate scheduler
+component), and this is the deliverable's central systems choice:
 agent actions are <em>synchronous</em>, the world is <em>asynchronous</em> — but both move the same
 single clock. No background threads exist anywhere.</p>
 
@@ -579,7 +568,12 @@ every started activity, completes those hitting zero, then re-dispatches.</figca
   <thead><tr><th>Kind</th><th>Priority</th><th>on_start</th><th>on_done</th></tr></thead>
   <tbody>
     <tr><td><code>meeting</code></td><td>100</td><td><code>add_meeting</code></td><td><code>add_transcript</code> (always — empty body by default)</td></tr>
-    <tr><td><code>jira_work</code></td><td>40</td><td>—</td><td>log <code>ticket.worked</code> (records that work happened; does not track an issue)</td></tr>
+    <tr><td><code>in_meeting</code></td><td>100</td><td>—</td><td>— (bridge kind requested by <code>MeetingEvent</code>; the event stays the single writer)</td></tr>
+    <tr><td><code>ooo</code></td><td>200</td><td>—</td><td>— (bridge kind requested by <code>OOOEvent</code>)</td></tr>
+    <tr><td><code>jira_work</code></td><td>40</td>
+        <td>with <code>params.issue_key</code>: <code>todo | blocked → in_progress</code></td>
+        <td>log <code>ticket.worked</code>; with an issue: log remaining work, then
+            → <code>done</code> (<code>auto_close</code>, the default) or <code>in_review</code></td></tr>
     <tr><td><code>write_doc</code></td><td>35</td><td>—</td><td><code>add_document</code></td></tr>
     <tr><td><code>review_doc</code></td><td>30</td><td>—</td><td>log <code>doc.reviewed</code></td></tr>
     <tr><td><code>slack_send</code></td><td>20</td><td>—</td><td><code>add_message</code></td></tr>
@@ -592,30 +586,41 @@ every started activity, completes those hitting zero, then re-dispatches.</figca
 <code>started</code> activity across all attenders; dispatch runs highest-priority first; an incoming
 activity <em>waits</em> if any attender is already in an equal-or-higher-priority activity, and
 <em>interrupts</em> strictly-lower ones (every activity is interruptible). Priority is the only per-kind
-knob besides the two effect hooks — adding a kind is one registration in <code>ACTIVITY_KINDS</code>.</p>
+knob besides the two effect hooks — adding a kind is one registration in <code>ACTIVITY_KINDS</code>.
+The manager also exposes one seam: <code>on_activity_done</code>, fired once per completed activity
+from <code>tick()</code> (after the burn loop, before re-dispatch) — the runner installs the
+<code>WorkDriver</code>'s sweep there.</p>
 
-<div class="note">In practice the scenario catalog is driven by the <em>Event</em> system
-(scheduler + calendar); the Activity system is wired into every <code>Engine.step()</code> but stays
-idle until something calls <code>activities.request(...)</code>.</div>
+<div class="note">This is the live path for NPC work: the scenario catalog dispatches every ticket as a
+<code>jira_work</code> activity, and meetings/OOO reach in through their bridge kinds. Events remain the
+system for scheduled occurrences (meetings, OOO, communication latency) and for the procedural
+generator's <code>JiraTicketEvent</code> path.</div>
 
 <!-- ================================================================== -->
 <h2 id="triggers">7. How events, actions &amp; activities trigger each other</h2>
 
 <p>Three moving parts share the single clock, and each fires the others:</p>
 <ul>
+  <li><strong>Activity done → NPC behavior → next activity or event.</strong> NPC work runs as
+      <code>jira_work</code> activities; nothing polls. When an activity completes,
+      <code>ActivityManager</code> fires <code>on_activity_done</code>, where the
+      <code>WorkDriver</code> sweeps the roster: every member with nothing in flight requests their
+      next issue as a new activity (one completion can unblock anyone), and an
+      <code>announces_progress</code> persona also triggers a status <code>SlackSendEvent</code>.
+      The only other dispatch is the kickoff sweep at week start. An activity belongs to its NPC
+      <em>attenders</em> (≥ 1) and occupies them — one <code>started</code> activity per NPC is
+      exactly what interrupt/resume arbitrates.</li>
   <li><strong>Action → events.</strong> An <em>action</em> (<code>Engine.perform_action</code>) runs its
-      effect at the <em>current</em> tick, then <code>advance(cost)</code> loops <code>step()</code> —
-      the cost window is exactly when pending events start and active ones finish. The agent's
-      <code>send_slack</code> and every <code>JiraApi</code> mutation take this path.</li>
-  <li><strong>Tick → events → reactions → events.</strong> NPC pickup hooks
-      <code>schedule(Event)</code> work every minute; when <code>step()</code> completes an event,
-      <code>reactions.react</code> fires and schedules follow-ups — events beget events, with NPCs as
-      the relay.</li>
-  <li><strong>Tick → activities.</strong> The same <code>step()</code> ends with
-      <code>ActivityManager.tick</code>: started activities burn down a minute, finished ones apply
-      their effect, preempted ones sit <code>interrupted</code> until re-dispatch. An activity belongs
-      to its NPC <em>attenders</em> (≥ 1) and occupies them — one <code>started</code> activity per NPC
-      is exactly what interrupt/resume arbitrates. Activities never schedule events.</li>
+      effect at the <em>current</em> tick, then <code>advance(cost)</code> loops <code>step()</code>.
+      The agent's <code>send_slack</code> uses its tool to trigger an event: the effect schedules a
+      <code>SlackSendEvent</code>, which lands through the event pipeline during the cost window —
+      the same path NPC messages take, so world reactions fire for it too.</li>
+  <li><strong>Event done → reactions; meetings preempt work.</strong> When <code>step()</code>
+      completes a standup or a Slack send, the close reactions fire
+      (<code>WorkDriver.on_tick</code>): naming a person closes their <code>in_review</code> work,
+      then the driver re-sweeps so unblocked dependents dispatch immediately. A
+      <code>MeetingEvent</code> starting requests an <code>in_meeting</code> bridge activity that
+      interrupts its attendees' work (OOO bridges at priority 200).</li>
 </ul>
 
 <figure>
@@ -629,7 +634,7 @@ idle until something calls <code>activities.request(...)</code>.</div>
   <!-- row 1: the action path -->
   <rect class="bx-agent" x="20" y="20" width="210" height="52"/>
   <text class="t" x="125" y="40" text-anchor="middle">LLM PM agent</text>
-  <text class="s" x="125" y="58" text-anchor="middle">send_slack · JiraApi mutations</text>
+  <text class="s" x="125" y="58" text-anchor="middle">send_slack → SlackSendEvent</text>
 
   <rect class="bx-drv" x="290" y="20" width="250" height="52"/>
   <text class="t" x="415" y="40" text-anchor="middle">Action — perform_action</text>
@@ -645,9 +650,9 @@ idle until something calls <code>activities.request(...)</code>.</div>
 
   <!-- row 2: the three durative parts -->
   <rect class="bx-npc" x="20" y="150" width="230" height="64"/>
-  <text class="t" x="135" y="172" text-anchor="middle">NPC hooks &amp; reactions</text>
-  <text class="s" x="135" y="190" text-anchor="middle">behavior.py · reactions.py</text>
-  <text class="s" x="135" y="204" text-anchor="middle">pick up each tick · react on done</text>
+  <text class="t" x="135" y="172" text-anchor="middle">NPC behavior — WorkDriver</text>
+  <text class="s" x="135" y="190" text-anchor="middle">sim/npc.py — one component</text>
+  <text class="s" x="135" y="204" text-anchor="middle">kickoff + completion sweeps</text>
 
   <rect class="bx-evt" x="370" y="150" width="250" height="64"/>
   <text class="t" x="495" y="172" text-anchor="middle">Event</text>
@@ -660,12 +665,18 @@ idle until something calls <code>activities.request(...)</code>.</div>
   <text class="s" x="825" y="204" text-anchor="middle">burns down 1 min per tick</text>
 
   <line class="edge" x1="250" y1="166" x2="368" y2="166" marker-end="url(#arr5)"/>
-  <text class="el" x="309" y="158" text-anchor="middle">schedule(Event)</text>
+  <text class="el" x="309" y="158" text-anchor="middle">status SlackSendEvent</text>
   <line class="edge" x1="368" y1="198" x2="252" y2="198" marker-end="url(#arr5)"/>
-  <text class="el" x="309" y="226" text-anchor="middle">done → reactions.react</text>
+  <text class="el" x="309" y="226" text-anchor="middle">standup/mention done → close, re-sweep</text>
+
+  <path class="edge" d="M 770 150 L 770 128 L 190 128 L 190 148" marker-end="url(#arr5)"/>
+  <text class="el" x="480" y="122" text-anchor="middle">on_activity_done — every completion re-sweeps the roster</text>
+
+  <line class="edge" x1="620" y1="176" x2="708" y2="176" marker-end="url(#arr5)"/>
+  <text class="el" x="664" y="168" text-anchor="middle">in_meeting bridge</text>
 
   <line class="edge" x1="760" y1="72" x2="560" y2="148" marker-end="url(#arr5)"/>
-  <text class="el" x="672" y="106" text-anchor="middle">start due · complete finished</text>
+  <text class="el" x="700" y="99" text-anchor="middle">start due · complete finished</text>
   <line class="edge" x1="830" y1="72" x2="845" y2="148" marker-end="url(#arr5)"/>
   <text class="el" x="852" y="106">tick()</text>
 
@@ -681,12 +692,13 @@ idle until something calls <code>activities.request(...)</code>.</div>
 
   <!-- NPC ↔ activity ownership -->
   <path class="edge dash" d="M 60 214 L 60 238 L 900 238 L 900 216" marker-end="url(#arr5)"/>
-  <text class="el" x="600" y="232" text-anchor="middle">attenders — one started activity per NPC</text>
+  <text class="el" x="600" y="232" text-anchor="middle">sweep requests jira_work — attenders, one started activity per NPC</text>
 </svg>
-<figcaption>The cycle to notice is the green↔teal loop: NPC hooks schedule events, finished events wake
-NPC reactions, and reactions schedule the next events. Agent actions don't touch that loop directly —
-they buy the sim-time in which it runs. Activities hang off the same <code>step()</code> but stay idle
-in the current catalog (nothing calls <code>activities.request</code>).</figcaption>
+<figcaption>The cycle to notice is the rose↔green loop: a finished activity fires
+<code>on_activity_done</code>, the <code>WorkDriver</code> sweep requests the next activities (and
+status events). Meetings reach into that loop from the event side via the <code>in_meeting</code>
+bridge. Agent actions don't touch the loop directly — <code>send_slack</code> triggers a
+<code>SlackSendEvent</code> whose completion closes/redirects work through the reactions.</figcaption>
 </figure>
 
 <div class="legend">
@@ -748,33 +760,33 @@ Scenarios swap them per member with <code>with_personas(cast, …)</code>.</p>
 <h3>How traits become behavior</h3>
 <div class="cols">
   <div class="card">
-    <h4>Pickup hooks — <span class="path">pm/npc/behavior.py</span></h4>
-    <p>Per-tick <code>on_tick</code> hooks that decide <em>which work to enqueue</em>:</p>
+    <h4>WorkDriver — <span class="path">pm/sim/npc.py</span></h4>
+    <p>The single, completion-driven dispatch path:</p>
     <ul>
-      <li><code>assignee_pickup_hook</code> — each person works their next ready <em>assigned</em> issue
-          (what <code>runner.drive</code> uses); <code>dev_pickup_hook</code> — idle devs take the next
-          ready issue in their discipline.</li>
+      <li><code>sweep(engine)</code> — every member with nothing in flight picks their next issue;
+          plain-id members work a pre-assigned board, <code>CastMember</code>s also pull unassigned
+          discipline work (self-assigning; <code>works=False</code> skipped). Run once at kickoff,
+          then from <code>on_activity_done</code> on every completion.</li>
       <li><code>_next_issue</code> — an issue at <strong>priority ≤ 0</strong> (a PM “pick up” directive)
           overrides everything; else freestyle picks seeded-random
           (<code>Random(f"{seed}:{pid}:{now}")</code>), else by priority.</li>
-      <li><code>_dispatch_work</code> — schedules a <code>JiraTicketEvent</code>
+      <li><code>_dispatch_issue</code> — requests a <code>jira_work</code> activity
           (duration = <code>estimate_minutes</code>, <code>auto_close</code> from the persona) plus an
           optional <code>SlackSendEvent</code> status if <code>announces_progress</code>.</li>
-      <li><code>compose(*hooks)</code> — combines several hooks into one <code>on_tick</code>.</li>
     </ul>
   </div>
   <div class="card">
-    <h4>Reactions — <span class="path">pm/npc/reactions.py</span></h4>
-    <p>One handler per <code>EventType</code>, fired when an event <em>completes</em>
-    (<code>react_on_tick</code> dispatches for everything in <code>events_done_at(now)</code>):</p>
+    <h4>Reactions — <span class="path">pm/sim/npc.py</span> (same component)</h4>
+    <p>One handler per <code>EventType</code>, fired when an event <em>completes</em>;
+    <code>WorkDriver.on_tick</code> is what the runner composes — closes, then a sweep:</p>
     <ul>
-      <li><code>JIRA_TICKET</code> done → the assignee picks up their next ready ticket
-          (carrying their board-update policy) — work chains.</li>
       <li><code>MEETING</code> done → a <em>standup</em> prompts attendees to close their
           <code>in_review</code> work.</li>
       <li><code>SLACK_SEND</code> done → a message <em>naming a person</em> closes their
           <code>in_review</code> work; a “pick up <code>KEY</code>” directive bumps that issue to
           priority 0.</li>
+      <li><code>JIRA_TICKET</code> done → the assignee picks up their next ready ticket
+          (the event-path cascade — the procedural generator's flow).</li>
       <li>Email/Slack reads and OOO are documented no-op placeholders.</li>
     </ul>
   </div>
@@ -798,9 +810,10 @@ already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agen
   <tbody>
     <tr><td><code>send_slack(channel_id, body)</code></td><td>mutation</td>
         <td><code>send_cost</code> (default 1 tick)</td>
-        <td>Routes through <code>Engine.perform_action</code>: message lands at the current tick, the
-            action is logged, time advances — firing due background events. Errors surface as
-            <code>ToolError</code>.</td></tr>
+        <td>Triggers an event: the <code>perform_action</code> effect schedules a
+            <code>SlackSendEvent</code> (duration 0), which lands through the event pipeline during
+            the cost window — one tick of send latency, the same path NPC messages take, so world
+            reactions fire for it. Unknown channels surface as <code>ToolError</code>.</td></tr>
     <tr><td><code>read_slack(channel_id)</code></td><td>read</td><td>0</td>
         <td>Channel messages, oldest first.</td></tr>
     <tr><td><code>read_jira_board(project_id)</code></td><td>read</td><td>0</td>
@@ -854,9 +867,9 @@ already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agen
   <line class="edge" x1="330" y1="230" x2="558" y2="230" marker-end="url(#arr4)"/>
   <text class="el" x="338" y="224">perform_action(cost=1, effect)</text>
   <line class="edge" x1="560" y1="262" x2="798" y2="262" marker-end="url(#arr4)"/>
-  <text class="el" x="578" y="256">effect: message row @ now</text>
+  <text class="el" x="578" y="256">effect: schedule slack.send (duration 0)</text>
   <path class="edge" d="M 560 290 C 616 290 616 314 562 314" marker-end="url(#arr4)"/>
-  <text class="el" x="546" y="306" text-anchor="end">advance(1) → step(): due events fire</text>
+  <text class="el" x="546" y="306" text-anchor="end">advance(1) → step(): the send fires, message lands</text>
   <line class="edge dash" x1="800" y1="290" x2="800" y2="330"/>
   <text class="el" x="888" y="316" text-anchor="end">reactions: close in_review ·</text>
   <text class="el" x="888" y="330" text-anchor="end">“pick up KEY” → priority 0</text>
@@ -916,40 +929,39 @@ leaks past it. Schema (version 2) highlights:</p>
 <h3>Scenarios — <span class="path">pm/scenarios/</span></h3>
 <p>A scenario module exposes <code>build(run_id, seed, root, force, member_persona) → Env</code> plus
 <code>MEMBERS</code>, <code>PROJECT_ID</code>, and optionally <code>agent_review_hook(env)</code>.
-The shared runner (<span class="path">scenarios/runner.py</span>) composes the hooks —
-<strong>the PM hook runs first</strong>, so a same-tick close/directive lands before the person it
-steers picks their next ticket — runs the week, then fires one final PM close-out for work finishing
-on the last tick.</p>
+The shared runner (<span class="path">scenarios/runner.py</span>) builds a <code>WorkDriver</code>,
+installs it as the <code>ActivityManager</code> completion hook, sweeps once at kickoff, and runs the
+week with an <code>on_tick</code> of the PM review hook (<strong>run first</strong>, so a same-tick
+close/directive lands before anyone picks) plus the standup/Slack close reactions — then fires one
+final PM close-out for work finishing on the last tick.</p>
 
 <table>
   <thead><tr><th>Scenario family</th><th>Setup</th><th>What it demonstrates</th></tr></thead>
   <tbody>
-    <tr><td><code>test_single_engineer*</code></td>
+    <tr><td><code>test_single_engineer_free_spirit*</code></td>
         <td>alice alone: the 40-hour "Meeting Transcripts v1" project
             (<span class="path">project_single_engineer.md</span>, priority 1) + 20 hours of backlog —
-            a 60-hour board where triage decides whether the project ships</td>
-        <td>PERFECT ships the whole project and nothing else; FREE_SPIRIT lets backlog picks
-            displace project tasks; <code>_with_agent</code> adds the LLM PM reviewing the board.</td></tr>
-    <tr><td><code>test_two_engineers*</code></td>
+            a 60-hour board where triage decides whether the project ships; personas default
+            to free_spirit</td>
+        <td>FREE_SPIRIT lets backlog picks displace project tasks (a PERFECT override ships the
+            whole project and nothing else); <code>_with_agent</code> adds the LLM PM reviewing
+            the board.</td></tr>
+    <tr><td><code>test_two_engineers_mixed*</code></td>
         <td>two engineers splitting the same project
-            (<span class="path">project_two_engineers.md</span>) with cross-dependencies (plus a
-            <code>_mixed</code> personas variant)</td>
-        <td>Closing in_review work unblocks a partner — the PM's close lever matters.</td></tr>
-    <tr><td><code>team_with_jira</code> / <code>team_mixed_persona</code></td>
-        <td>6-person cast, 66 pre-assigned tasks tiling each calendar between 11 pre-booked meetings;
-            dependency + priority order finishes exactly at Fri 17:00</td>
-        <td>Zero-slack schedule; standups carry the authored transcripts from
-            <span class="path">pm/transcript/</span> (a customer “live caption translation” thread only
-            the PM can act on, surfaced via <code>read_transcripts</code>).</td></tr>
-    <tr><td><code>team_no_jira</code> · <code>team_partial_jira</code></td>
-        <td>Full team; the “Meeting Transcripts v1” plan (6 tasks, DRIs, estimates) lives in
+            (<span class="path">project_two_engineers.md</span>) with cross-dependencies; personas
+            default to the stalling mix (alice free_spirit, clare heads_down)</td>
+        <td>Closing in_review work unblocks a partner — the PM's close lever matters;
+            <code>_with_agent</code> adds the LLM PM reviewing the board.</td></tr>
+    <tr><td><code>team_no_jira*</code></td>
+        <td>Full team; the “Meeting Transcripts v1” plan (25 tasks, DRIs, estimates) lives in
             <span class="path">pm/transcript/project_team.md</span> and
-            <span class="path">scenarios/project_board.py</span> files only a chosen subset as Jira
-            tickets — none vs 3 of 6. The kickoff payload seeds all 6 informal tasks; daily standup
+            <span class="path">scenarios/project_board.py</span> files none of it as Jira
+            tickets. The kickoff payload seeds all 25 informal tasks; daily standup
             payloads advance their statuses.</td>
-        <td>The board-vs-notes trap: <code>read_jira_board</code> looks empty (or healthy) while the
+        <td>The board-vs-notes trap: <code>read_jira_board</code> looks empty while the
             transcripts and the <code>task</code> table hold the real project — which is what
-            <code>pm eval</code> grades.</td></tr>
+            <code>pm eval</code> grades; <code>_with_agent</code> adds the LLM PM reviewing
+            board + transcripts.</td></tr>
   </tbody>
 </table>
 
@@ -961,8 +973,8 @@ is reserved before anything else is placed.</p>
 
 <footer>
   Generated 2026-07-16 from the source at commit-time state — anchors:
-  <span class="path">pm/sim/{clock,events,engine,scheduler,calendar,activity,simulation}.py</span> ·
-  <span class="path">pm/npc/{cast,persona,behavior,reactions}.py</span> ·
+  <span class="path">pm/sim/{clock,events,engine,calendar,activity,npc,simulation}.py</span> ·
+  <span class="path">pm/sim/npc.py</span> · <span class="path">pm/npc/{cast,persona}.py</span> ·
   <span class="path">pm/agent/{tools,openrouter_agent}.py</span> ·
   <span class="path">pm/db/{database,store,schema.sql}</span> ·
   <span class="path">pm/scenarios/runner.py</span>

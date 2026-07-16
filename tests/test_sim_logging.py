@@ -6,10 +6,11 @@ from typer.testing import CliRunner
 
 from pm.cli import app
 from pm.db.store import Store
-from pm.scenarios import runner, team_mixed_persona
+from pm.scenarios import runner, test_two_engineers_mixed
 from pm.scenarios.test_single_engineer_with_agent import PROJECT_ID, agent_review_hook
 from pm.scenarios.test_single_engineer_with_agent import build as build_agent_scenario
 from pm.sim.clock import WEEK_END_TICK
+from pm.sim.events import MeetingEvent
 from pm.sim.narrate import format_entry
 from pm.sim.simulation import Simulation
 from pm.world.models import LogEntry
@@ -40,10 +41,15 @@ def test_format_entry_renders_sim_time_and_detail():
 
 
 def test_week_logs_npc_decisions_and_activity_transitions(tmp_path):
-    # Mixed-persona team week: free spirits pick, standups interrupt work and
-    # close heads-down clare's in_review tickets — every gap kind must appear.
-    env = team_mixed_persona.build(run_id="log-week", root=tmp_path)
-    runner.drive(env, team_mixed_persona)
+    # Mixed-persona pair week plus one Tuesday standup: free-spirit alice picks,
+    # the standup interrupts work and closes heads-down clare's in_review
+    # tickets — every gap kind must appear.
+    env = test_two_engineers_mixed.build(run_id="log-week", root=tmp_path)
+    env.engine.schedule(MeetingEvent(
+        owner_id="alice", start_tick=600, duration=30,
+        payload={"meeting_id": "standup-0", "kind": "standup",
+                 "title": "Daily standup", "attendees": ["alice", "clare"]}))
+    runner.drive(env, test_two_engineers_mixed)
 
     entries = env.store.read_log()
     kinds = {e.kind for e in entries}
@@ -77,14 +83,14 @@ def test_cli_streams_by_default_silences_with_no_verbose_and_prints_log(tmp_path
     monkeypatch.chdir(tmp_path)
     cli = CliRunner()
 
-    loud = cli.invoke(app, ["sim", "--scenario", "test_two_engineers"])
+    loud = cli.invoke(app, ["sim", "--scenario", "test_two_engineers_mixed"])
     assert loud.exit_code == 0, loud.output
     assert "npc.pickup" in loud.output  # streamed while simulating
 
-    quiet = cli.invoke(app, ["sim", "--scenario", "test_single_engineer", "--no-verbose"])
+    quiet = cli.invoke(app, ["sim", "--scenario", "test_single_engineer_free_spirit", "--no-verbose"])
     assert quiet.exit_code == 0, quiet.output
     assert "npc.pickup" not in quiet.output
 
-    log = cli.invoke(app, ["log", "--scenario", "test_single_engineer"])
+    log = cli.invoke(app, ["log", "--scenario", "test_single_engineer_free_spirit"])
     assert log.exit_code == 0, log.output
     assert "npc.pickup" in log.output and "Mon 09:00" in log.output

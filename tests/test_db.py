@@ -1,4 +1,4 @@
-"""Foundation tests: schema, round-tripping, event log, scheduler queue, clock."""
+"""Foundation tests: schema, round-tripping, event log, event queue, clock."""
 
 from __future__ import annotations
 

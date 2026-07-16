@@ -15,10 +15,10 @@ from pm.db.store import Store
 from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.persona import FREE_SPIRIT
+from pm.npc.persona import FREE_SPIRIT, PERFECT
 from pm.scenarios import runner
-from pm.scenarios import test_two_engineers as scenario
-from pm.scenarios.test_two_engineers import (
+from pm.scenarios import test_two_engineers_mixed as scenario
+from pm.scenarios.test_two_engineers_mixed import (
     DEPS,
     PROJECT_ID,
     TASKS,
@@ -66,10 +66,10 @@ def test_seed_db_shape(tmp_path):
     seed.close()
 
 
-def test_default_personas_finish_exactly_at_week_end(tmp_path):
+def test_perfect_personas_finish_exactly_at_week_end(tmp_path):
     # Worked in dependency + priority order, every handoff is just-in-time and
     # the board finishes at Fri 17:00 sharp.
-    env = build(run_id="blind-run", root=tmp_path)
+    env = build(run_id="blind-run", root=tmp_path, member_persona=PERFECT)
     api = _run_week(env)
 
     assert env.clock.now() == WEEK_END_TICK

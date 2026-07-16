@@ -11,7 +11,7 @@ from pm.jira.api import JiraApi
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
 from pm.agent.log import AgentLog, agent_log_name
-from pm.scenarios import team_with_jira
+from pm.scenarios import team_no_jira, test_two_engineers_mixed
 from pm.sim.engine import Engine
 from pm.viz import write_agent_activity, write_calendars, write_jira_tasks
 from pm.viz.agent_activity import render_agent_activity_html
@@ -203,7 +203,7 @@ def test_render_agent_activity_html_markers_and_entries():
 # -- end to end ----------------------------------------------------------------
 
 def test_write_agent_activity_reads_run_log(tmp_path):
-    env = team_with_jira.build(run_id="e2e-agent", root=tmp_path / "runs")
+    env = test_two_engineers_mixed.build(run_id="e2e-agent", root=tmp_path / "runs")
     env.close()
     run_dir = tmp_path / "runs" / "e2e-agent"
 
@@ -217,22 +217,23 @@ def test_write_agent_activity_reads_run_log(tmp_path):
     assert "Mon 13:00" in out.read_text()  # tick 240 rendered on the timeline
 
 
-def test_writers_render_team_with_jira(tmp_path):
-    env = team_with_jira.build(run_id="e2e", root=tmp_path / "runs")
-    tasks = [i.id for i in JiraRepository(env.store).list_issues(issue_type="task")]
+def test_writers_render_scenario_runs(tmp_path):
+    # Calendars from the meeting-heavy team week; the board from the two-engineer run.
+    env = team_no_jira.build(run_id="e2e-cal", root=tmp_path / "runs")
     env.close()
-
-    cal_path = write_calendars("e2e", root=tmp_path / "runs")
-    jira_path = write_jira_tasks("e2e", root=tmp_path / "runs")
-    assert cal_path == tmp_path / "runs" / "e2e" / "calendars.html"
-    assert jira_path == tmp_path / "runs" / "e2e" / "jira_tasks.html"
-
+    cal_path = write_calendars("e2e-cal", root=tmp_path / "runs")
+    assert cal_path == tmp_path / "runs" / "e2e-cal" / "calendars.html"
     calendars = cal_path.read_text()
-    for name in ("Alice", "Bob", "Clare", "David", "Elieen", "Xavier"):
+    for name in ("Alice", "Bob", "Clare", "David", "Elieen"):
         assert name in calendars
     assert "Daily standup" in calendars
 
+    env = test_two_engineers_mixed.build(run_id="e2e-jira", root=tmp_path / "runs")
+    tasks = [i.id for i in JiraRepository(env.store).list_issues(issue_type="task")]
+    env.close()
+    jira_path = write_jira_tasks("e2e-jira", root=tmp_path / "runs")
+    assert jira_path == tmp_path / "runs" / "e2e-jira" / "jira_tasks.html"
     jira = jira_path.read_text()
-    assert len(tasks) == 66
+    assert len(tasks) == 16
     for key in tasks:
         assert key in jira

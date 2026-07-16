@@ -202,7 +202,7 @@ class Store:
     def max_event_seq(self) -> int:
         """Largest ``seq`` assigned so far, or -1 if none.
 
-        Lets the scheduler resume its monotonic sequence counter without reusing
+        Lets the engine resume its monotonic sequence counter without reusing
         values after a save/reload.
         """
         row = self.db.query_one("SELECT MAX(seq) AS s FROM event")

@@ -11,9 +11,8 @@ from pm.db.store import Store
 from pm.env.environment import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import WorkDriver, compose
-from pm.npc.reactions import close_and_wake_on_tick
-from pm.scenarios.test_single_engineer import HIGH_PRIORITY
+from pm.sim.npc import WorkDriver, compose
+from pm.scenarios.test_single_engineer_free_spirit import HIGH_PRIORITY
 from pm.scenarios.test_single_engineer_with_agent import (
     CHANNEL,
     MEMBERS,
@@ -46,7 +45,7 @@ def _run(tmp_path, run_id="solo-agent"):
     env.engine.activities.on_activity_done = driver.on_activity_done
     driver.sweep(env.engine)  # kickoff
     Simulation(env).run(on_tick=compose(
-        close_and_wake_on_tick(driver),
+        driver.on_tick,
         agent_review_hook(env, client=_fake_client())))
     return env, api
 

@@ -11,9 +11,10 @@ nothing of higher ones):
 
 ```
 env      facade: one handle over a run (owns store + sim kernel)
-  ├─ sim    dynamics: clock, scheduler, engine, durative events, calendar, activities
+  ├─ sim    dynamics: clock, engine (event queue + minute loop), durative events, calendar,
+  │         activities, and the NPC component (sim/npc.py — WorkDriver + reactions)
   ├─ jira   Jira-style issue tracker over the Store (its own issue tables)
-  ├─ npc    coworker roster + persona + the completion-driven WorkDriver
+  ├─ npc    coworker roster + persona presets (cast.py, persona.py)
   └─ db     persistence: sqlite connection, schema.sql, the typed Store
         └─ world   domain layer: Pydantic entities (models.py) + read view (resources.py)
 ```
@@ -109,17 +110,16 @@ preserves `source_meeting_id` and `created_tick`, so work can be created,
 handed off, and closed entirely inside meetings without a Jira ticket ever
 being filed.
 
-The `team_*` scenarios are built on that split. The "Meeting Transcripts v1"
+The `team_no_jira` scenario is built on that split. The "Meeting Transcripts v1"
 brief ships with three board-sized task breakdowns — `pm/transcript/project_{team,
 two_engineers,single_engineer}.md`, same project and scope, different work tasks —
 parsed by `pm/transcript/__init__.py::project_tasks(board)`. The team breakdown
-(`NOTES-1…6`, each with DRI, status, and estimate) drives the `team_*` scenarios.
+(`NOTES-1…25`, each with DRI, status, and estimate) drives `team_no_jira`.
 `pm/scenarios/project_board.py::seed_project_board(env, jira_ids=…)` adds the
 project row and files Jira tickets **only for the selected ids** —
-`team_no_jira` files none (the board stays empty all week),
-`team_partial_jira` files three of six — while the full breakdown always
-reaches the `task` table through the Monday kickoff's payload, and the later
-standups' payloads advance the statuses. So `read_jira_board` can look empty
+`team_no_jira` files none (the board stays empty all week) — while the full
+breakdown always reaches the `task` table through the Monday kickoff's payload,
+and the later standups' payloads advance the statuses. So `read_jira_board` can look empty
 or healthy while the transcripts and the `task` table hold the real project —
 and `pm eval` (`pm/eval/report.py`) grades "every project task done" from the
 informal table, falling back to the board's leaf `task` issues only when a run
@@ -132,7 +132,8 @@ Three moving parts share the one clock, and each fires the others:
 - **Activity done → NPC behavior → next activity or event.** NPC work runs as
   `jira_work` **activities**; nothing polls. When an activity completes,
   `ActivityManager` fires its `on_activity_done` hook, where the
-  `WorkDriver` (`pm/npc/behavior.py`) sweeps the roster: every member with
+  `WorkDriver` (`pm/sim/npc.py` — behavior and reactions are one component
+  inside the sim) sweeps the roster: every member with
   nothing in flight picks their next issue per their persona and **requests a
   new activity** (one completion can unblock anyone, so the sweep covers
   everyone) — and an `announces_progress` persona also **triggers an event**
@@ -146,10 +147,12 @@ Three moving parts share the one clock, and each fires the others:
   through the event pipeline during the cost window (the same path NPC
   messages take, so world reactions fire for it too).
 - **Event done → reactions.** When `step()` completes an event, the
-  standup/Slack close reactions fire (`reactions.close_and_wake_on_tick`,
-  composed by the runner): a standup ending or a Slack message naming a person
-  closes their `in_review` work, then re-sweeps the driver so newly unblocked
-  dependents dispatch immediately.
+  standup/Slack close reactions fire (`WorkDriver.on_tick`, composed by the
+  runner): a standup ending or a Slack message naming a person closes their
+  `in_review` work, then re-sweeps the driver so newly unblocked dependents
+  dispatch immediately — and a "pick up" directive preempts the ticket being
+  worked (the directed one runs just above normal work priority; the
+  interrupted ticket resumes afterwards).
 - **Meetings preempt work.** A `MeetingEvent`'s `_on_start` requests an
   `in_meeting` bridge activity (priority 100, no effects) for its attendees,
   which interrupts their `jira_work` (40); `OOOEvent` bridges the same way at
@@ -162,7 +165,7 @@ flowchart LR
   act["Action — Engine.perform_action<br>effect now · log · advance(cost)"]:::drv
   step["Engine.step()<br>one simulated minute"]:::drv
   ev["Event<br>pending → active → done"]:::event
-  npc["NPC behavior — WorkDriver<br>kickoff + completion sweeps · reactions.py"]:::npc
+  npc["NPC component — sim/npc.py<br>WorkDriver sweeps · reactions"]:::npc
   acts["Activity<br>started ↔ interrupted"]:::activity
   fx["world writes<br>messages · meetings · transcripts · informal tasks · Jira"]:::world
 
@@ -201,7 +204,7 @@ pending ──start()──▶ active ──done()──▶ done        (+ cance
 
 There is exactly **one row per event** in the `event` table, and that table *is*
 the queue — indexed `(status, start_tick, seq)`, with **no parallel in-memory
-heap**. `Scheduler.schedule(event)` (`pm/sim/scheduler.py`) stamps a monotonic
+heap**. `Engine.schedule(event)` (`pm/sim/engine.py`) stamps a monotonic
 `seq` (resumed past the persisted max so it's never reused) and `created_tick`,
 then persists via `Store.upsert_event`. Global order is therefore
 `(start_tick, seq)` — deterministic across replays and resumes.
@@ -223,7 +226,7 @@ durative *events* (meetings, OOO, and generator-produced `JiraTicketEvent`s).
 
 ### Calendar reservation (event level, at schedule time)
 
-`pm/sim/calendar.py::reserve` is called from `Scheduler.schedule` for *occupying*
+`pm/sim/calendar.py::reserve` is called from `Engine.schedule` for *occupying*
 (durative) event types. Priority is by type — a meeting (`MEETING`, 100)
 outranks work (`JIRA_TICKET`, 20). The `occupancy` table is
 the materialized per-NPC calendar of `[start, end)` blocks. On reserve:

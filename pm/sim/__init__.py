@@ -1,5 +1,5 @@
 """Simulation kernel: clock (work-week sim-time), events (durative activities),
-scheduler (event queue), engine (per-minute loop), simulation (bounded week loop)."""
+engine (event queue + per-minute loop), simulation (bounded week loop)."""
 
 from pm.sim.clock import (
     TICKS_PER_WEEK,
@@ -9,7 +9,6 @@ from pm.sim.clock import (
 )
 from pm.sim.engine import Engine
 from pm.sim.events import Event, EventStatus, EventType
-from pm.sim.scheduler import Scheduler
 from pm.sim.simulation import RunSummary, Simulation
 
 __all__ = [
@@ -18,7 +17,6 @@ __all__ = [
     "EventStatus",
     "EventType",
     "RunSummary",
-    "Scheduler",
     "SimClock",
     "Simulation",
     "TICKS_PER_WEEK",

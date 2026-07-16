@@ -146,7 +146,7 @@ def _jira_work_done(engine: "Engine", a: Activity) -> None:
         api.log_work(key, issue.remaining_minutes, actor=a.attendees[0])
     # ``auto_close`` (default True) is the standard finish-to-done flow; a
     # ``when_asked`` persona parks the work in ``in_review`` until a standup or a
-    # Slack mention closes it (see pm.npc.reactions).
+    # Slack mention closes it (see pm.sim.npc).
     to_status = "done" if a.params.get("auto_close", True) else "in_review"
     api.transition_issue(key, to_status, actor=a.attendees[0])
 
@@ -264,13 +264,18 @@ class ActivityManager:
     # -- public API ----------------------------------------------------------
     def request(
         self, kind: str, attendees: list[str], duration_needed: int, now: int,
-        *, params: dict | None = None,
+        *, params: dict | None = None, priority: int | None = None,
     ) -> Activity:
-        """Enqueue a new activity and dispatch (may start, interrupt others, or wait)."""
+        """Enqueue a new activity and dispatch (may start, interrupt others, or wait).
+
+        ``priority`` overrides the kind's default — e.g. a PM-directed ticket runs
+        just above normal ``jira_work`` so it preempts the ticket being worked.
+        """
         if kind not in ACTIVITY_KINDS:
             raise ValueError(f"unknown activity kind {kind!r}")
         a = Activity(
-            kind=kind, attendees=list(attendees), priority=ACTIVITY_KINDS[kind].priority,
+            kind=kind, attendees=list(attendees),
+            priority=ACTIVITY_KINDS[kind].priority if priority is None else priority,
             duration_needed=duration_needed, remaining=duration_needed,
             state="backlogged", created_tick=now, params=params or {},
         )

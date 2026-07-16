@@ -12,7 +12,8 @@ from __future__ import annotations
 import pytest
 
 from pm.agent.tools import AgentTools
-from pm.scenarios import runner, team_no_jira, team_with_jira
+from pm.scenarios import runner, team_no_jira
+from pm.sim.events import MeetingEvent
 from pm.transcript import STANDUP_DAYS, project_brief, standup_transcript
 
 
@@ -39,28 +40,32 @@ def test_transcripts_become_available_as_meetings_end(tmp_path):
 
 
 def test_every_meeting_leaves_a_transcript_by_default(tmp_path):
-    # The 1:1s carry no transcript_id/body in their payload; they still leave an
-    # (empty) transcript when they end — Monday's 1:1 runs 14:00-14:30.
-    env = team_with_jira.build(run_id="tw-default", root=tmp_path)
+    # A meeting with no transcript_id/body in its payload still leaves an
+    # (empty) transcript when it ends — here an ad-hoc sync at Mon 14:00-14:30.
+    env = team_no_jira.build(run_id="nj-default", root=tmp_path)
+    env.engine.schedule(MeetingEvent(
+        owner_id="alice", start_tick=300, duration=30,
+        payload={"meeting_id": "adhoc-0", "kind": "sync", "title": "Ad-hoc sync",
+                 "attendees": ["alice", "bob"]}))
     env.engine.advance(330)  # Mon 14:30
-    one_on_one = [t for t in env.store.list_transcripts(available_by=env.clock.now())
-                  if t.meeting_id.startswith("1on1")]
-    assert len(one_on_one) == 1
-    assert one_on_one[0].body == ""
+    adhoc = [t for t in env.store.list_transcripts(available_by=env.clock.now())
+             if t.meeting_id == "adhoc-0"]
+    assert len(adhoc) == 1
+    assert adhoc[0].body == ""
     env.close()
 
 
 def test_agent_reads_transcripts_with_meeting_context(tmp_path):
-    env = team_with_jira.build(run_id="tw-agent", root=tmp_path)
+    env = team_no_jira.build(run_id="nj-agent", root=tmp_path)
     tools = AgentTools(env)
     assert tools.read_transcripts() == []  # nothing has happened yet
 
-    runner.drive(env, team_with_jira)
+    runner.drive(env, team_no_jira)
 
     seen = tools.read_transcripts()
-    assert len(seen) == 11  # every meeting leaves a transcript
-    monday = next(t for t in seen if t["meeting_id"] == "standup-0")
-    assert monday["title"] == "Daily standup"
-    assert monday["available_tick"] == 150  # Mon 11:30
-    assert monday["body"] == ""  # team_with_jira meetings carry no authored notes
+    assert len(seen) == 5  # every meeting leaves a transcript
+    monday = next(t for t in seen if t["meeting_id"] == "no-jira-0")
+    assert monday["title"] == "Project kickoff"
+    assert monday["available_tick"] == 180  # Mon 12:00
+    assert project_brief() in monday["body"]  # the kickoff embeds the project doc
     env.close()

@@ -1,15 +1,15 @@
-"""The team_no_jira / team_partial_jira scenarios: work tracked in meeting notes.
+"""The team_no_jira scenario: work tracked in meeting notes only.
 
 project_team.md is the single source: the Monday kickoff seeds the informal ``task``
-rows from it (and embeds it in the transcript), later meetings update statuses,
-and ``jira_ids`` selects how much of the breakdown ever reaches the board.
+rows from it (and embeds it in the transcript), and later meetings update statuses
+— nothing ever reaches the Jira board.
 """
 
 from __future__ import annotations
 
 from pm.agent.tools import AgentTools
 from pm.jira.repository import JiraRepository
-from pm.scenarios import runner, team_no_jira, team_partial_jira
+from pm.scenarios import runner, team_no_jira
 from pm.transcript import project_brief, project_tasks
 
 BREAKDOWN = {t["id"]: t for t in project_tasks()}
@@ -62,18 +62,3 @@ def test_week_updates_statuses_in_notes_only(tmp_path):
     env.close()
 
 
-def test_partial_jira_files_exactly_the_selection(tmp_path):
-    env = team_partial_jira.build(run_id="pj", root=tmp_path)
-    issues = JiraRepository(env.store).list_issues()
-    assert {i.title for i in issues} == {
-        BREAKDOWN[t]["title"] for t in team_partial_jira.JIRA_IDS}
-    assert all(i.assignee_id == BREAKDOWN[t]["dri_id"]
-               for i, t in zip(sorted(issues, key=lambda i: i.id),
-                               sorted(team_partial_jira.JIRA_IDS)))
-
-    runner.drive(env, team_partial_jira)
-    # the filed half got worked on the board; the notes half never appears there
-    issues = JiraRepository(env.store).list_issues()
-    assert {i.status for i in issues} == {"done"}
-    assert len(env.store.list_tasks()) == 25  # the notes still track everything
-    env.close()

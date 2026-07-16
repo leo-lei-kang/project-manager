@@ -25,14 +25,11 @@ from pm.exceptions import ConfigurationError
 from pm.scenarios import (
     runner,
     team_no_jira,
-    team_partial_jira,
-    test_single_engineer,
+    team_no_jira_with_agent,
     test_single_engineer_free_spirit,
     test_single_engineer_with_agent,
-    test_two_engineers,
     test_two_engineers_mixed,
-    team_with_jira,
-    team_mixed_persona,
+    test_two_engineers_mixed_with_agent,
 )
 from pm.sim.narrate import format_entry
 from pm.sim.simulation import Simulation
@@ -42,14 +39,11 @@ from pm.viz import write_agent_activity, write_calendars, write_jira_tasks
 # bakes in its personas, and may expose agent_review_hook(env) to add a PM review hook.
 SCENARIOS = {
     "team_no_jira": team_no_jira,
-    "team_partial_jira": team_partial_jira,
-    "test_single_engineer": test_single_engineer,
+    "team_no_jira_with_agent": team_no_jira_with_agent,
     "test_single_engineer_free_spirit": test_single_engineer_free_spirit,
     "test_single_engineer_with_agent": test_single_engineer_with_agent,
-    "test_two_engineers": test_two_engineers,
     "test_two_engineers_mixed": test_two_engineers_mixed,
-    "team_with_jira": team_with_jira,
-    "team_mixed_persona": team_mixed_persona,
+    "test_two_engineers_mixed_with_agent": test_two_engineers_mixed_with_agent,
 }
 
 app = typer.Typer(

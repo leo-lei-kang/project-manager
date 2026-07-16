@@ -14,8 +14,8 @@ from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import CAST, with_personas
 from pm.npc.persona import FREE_SPIRIT, HEADS_DOWN, PERFECT
-from pm.npc.reactions import react
-from pm.scenarios import runner, test_two_engineers
+from pm.sim.npc import react
+from pm.scenarios import runner, test_two_engineers_mixed
 from pm.sim.events import SlackSendEvent
 
 MIX = {"alice": FREE_SPIRIT, "clare": HEADS_DOWN}
@@ -51,9 +51,9 @@ def test_with_personas_rejects_unknown_member():
 # -- the Slack directive lever --------------------------------------------------
 
 def test_pick_up_directive_bumps_named_issue(tmp_path):
-    env = test_two_engineers.build(run_id="nudge", root=tmp_path)
+    env = test_two_engineers_mixed.build(run_id="nudge", root=tmp_path)
     api = JiraApi(JiraRepository(env.store), env.engine)
-    task = api.search(project_id=test_two_engineers.PROJECT_ID, issue_type="task")[0]
+    task = api.search(project_id=test_two_engineers_mixed.PROJECT_ID, issue_type="task")[0]
     assert task.priority > 0
 
     react(env.engine, _slack(f"Alice: please pick up {task.id} next"))
@@ -62,19 +62,19 @@ def test_pick_up_directive_bumps_named_issue(tmp_path):
 
 def test_highlight_without_pick_up_steers_nothing(tmp_path):
     # A visibility-only message (the with_agent scenario's style) must not bump.
-    env = test_two_engineers.build(run_id="highlight", root=tmp_path)
+    env = test_two_engineers_mixed.build(run_id="highlight", root=tmp_path)
     api = JiraApi(JiraRepository(env.store), env.engine)
-    task = api.search(project_id=test_two_engineers.PROJECT_ID, issue_type="task")[0]
+    task = api.search(project_id=test_two_engineers_mixed.PROJECT_ID, issue_type="task")[0]
 
     react(env.engine, _slack(f"High-priority still open: {task.id} — please prioritize."))
     assert api.get_issue(task.id).priority == task.priority
     env.close()
 
 
-# -- the unmanaged mixed board (scenarios.md row 4) ------------------------------
+# -- the unmanaged mixed board (scenarios.md row 3) ------------------------------
 
 def test_mixed_pair_misses_the_week_unmanaged(tmp_path):
-    env, _ = _run(test_two_engineers, MIX, tmp_path)
+    env, _ = _run(test_two_engineers_mixed, MIX, tmp_path)
     report = evaluate(env.store)
     assert not report.goal_accomplished
     assert report.done_tasks < report.total_tasks

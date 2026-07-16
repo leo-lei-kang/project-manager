@@ -22,7 +22,6 @@ from pm.exceptions import ConfigurationError
 from pm.world.resources import ResourceMode, WorldResource
 from pm.sim.clock import SimClock
 from pm.sim.engine import Engine
-from pm.sim.scheduler import Scheduler
 
 RUNS_DIR = Path("runs")
 
@@ -33,8 +32,7 @@ class Env:
         self.root = root
         self.store = store
         self.clock = SimClock(store)
-        self.scheduler = Scheduler(store, self.clock)
-        self.engine = Engine(store, self.clock, self.scheduler)
+        self.engine = Engine(store, self.clock)
         self._seed_resource: WorldResource | None = None
 
     # -- paths ---------------------------------------------------------------
@@ -117,8 +115,7 @@ class Env:
 
         self.store = Store.open(str(world))
         self.clock = SimClock(self.store)
-        self.scheduler = Scheduler(self.store, self.clock)
-        self.engine = Engine(self.store, self.clock, self.scheduler)
+        self.engine = Engine(self.store, self.clock)
         if seed is not None:
             self.store.set_meta("seed", str(seed))
 

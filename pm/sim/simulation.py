@@ -1,6 +1,6 @@
 """The world-simulation model — a bounded event loop over the work week.
 
-`Simulation` wraps the existing kernel (clock + scheduler + engine over a `Store`) and
+`Simulation` wraps the existing kernel (clock + engine over a `Store`) and
 drives it from **Monday 09:00 to Friday 17:00**. It does not replace the engine;
 behaviour still lives on the durative `Event` objects. Its job is the *loop*: advance
 sim-time one work-minute at a time, starting and completing events as they come due,

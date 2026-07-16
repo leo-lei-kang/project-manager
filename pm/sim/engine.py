@@ -1,7 +1,12 @@
-"""Simulation engine — owns time progression and the sync/async boundary.
+"""Simulation engine — the event queue, time progression, and the sync/async boundary.
 
 This is where the deliverable's central systems choice is made legible:
 
+  * **Scheduling.** :meth:`schedule` queues an event on the persisted ``event``
+    table — the queue itself, indexed on ``(status, start_tick, seq)``, with no
+    parallel in-memory heap. The engine stamps a monotonic ``seq`` (resumed past
+    the persisted max, so ordering is reproducible across replays and resumes)
+    and resolves calendar contention at schedule time.
   * **Synchronous.** :meth:`perform_action` applies an agent's effect at the
     *current* tick — no sim-time passes while the effect runs — then advances the
     clock by the action's cost.
@@ -20,28 +25,52 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from pm.db.store import Store
+from pm.sim import calendar
 from pm.sim.activity import ActivityManager
 from pm.sim.clock import SimClock
 from pm.sim.events import Event
-from pm.sim.scheduler import Scheduler
 
 
 class Engine:
-    def __init__(
-        self,
-        store: Store,
-        clock: SimClock | None = None,
-        scheduler: Scheduler | None = None,
-    ) -> None:
+    def __init__(self, store: Store, clock: SimClock | None = None) -> None:
         self.store = store
         self.clock = clock or SimClock(store)
-        self.scheduler = scheduler or Scheduler(store, self.clock)
+        # Resume the counter past any events already persisted, so seq is never reused.
+        self._next_seq = store.max_event_seq() + 1
         # Per-NPC durative-work scheduler; a no-op until activities are requested.
         self.activities = ActivityManager(self)
 
+    # -- scheduling ------------------------------------------------------------
+
     def schedule(self, event: Event) -> int:
-        """Queue an event on the scheduler (convenience passthrough)."""
-        return self.scheduler.schedule(event)
+        """Queue an :class:`Event` to begin at its ``start_tick``. Returns its row id.
+
+        The event carries its own type, actor, start tick, duration and payload; the
+        engine only stamps the deterministic ordering fields and persists it.
+        """
+        now = self.clock.now()
+        if event.start_tick < now:
+            raise ValueError(
+                f"cannot schedule event in the past: start_tick={event.start_tick} < now={now}"
+            )
+        event.seq = self._next_seq
+        self._next_seq += 1
+        event.created_tick = now
+        event_id = self.store.upsert_event(event)
+        # Resolve calendar contention (a durative event may be shifted here, or may
+        # bump others). Instantaneous events reserve nothing and are untouched.
+        calendar.reserve(self.store, event, now)
+        # Logged after reserve so start_tick reflects any calendar shift.
+        self.store.log_event(now, actor=event.owner_id, kind="event.scheduled",
+                             payload={"type": event.type.value,
+                                      "start_tick": event.start_tick})
+        return event_id
+
+    def pending_count(self) -> int:
+        return self.store.count_pending_events()
+
+    def active_count(self) -> int:
+        return self.store.count_active_events()
 
     # -- synchronous side ----------------------------------------------------
 

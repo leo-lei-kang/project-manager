@@ -15,7 +15,6 @@ from pm.sim.events import (
     SlackSendEvent,
     JiraTicketEvent,
 )
-from pm.sim.scheduler import Scheduler
 from pm.world.models import Person, Project
 
 
@@ -46,28 +45,28 @@ def _log_kinds(store: Store) -> list[str]:
     return [e.kind for e in store.read_log()]
 
 
-# -- scheduler ---------------------------------------------------------------
+# -- scheduling (Engine.schedule) ---------------------------------------------
 
 
 def test_scheduler_rejects_past(store: Store) -> None:
     clock = SimClock(store)
     clock.advance(50)
-    sched = Scheduler(store, clock)
+    engine = Engine(store, clock)
     with pytest.raises(ValueError):
-        sched.schedule(SlackSendEvent(owner_id="u1", start_tick=10, payload={}))
+        engine.schedule(SlackSendEvent(owner_id="u1", start_tick=10, payload={}))
 
 
 def test_seq_is_monotonic_across_reopen(tmp_path) -> None:
     path = str(tmp_path / "world.db")
     store = Store.open(path, create=True)
-    Scheduler(store, SimClock(store)).schedule(
+    Engine(store).schedule(
         SlackSendEvent(owner_id="u1", start_tick=1, payload={})
     )
     store.close()
 
     store2 = Store.open(path)
-    sched = Scheduler(store2, SimClock(store2))
-    assert sched._next_seq == 1  # must not reuse seq 0
+    engine = Engine(store2)
+    assert engine._next_seq == 1  # must not reuse seq 0
     store2.close()
 
 
@@ -188,13 +187,13 @@ def test_event_status_flips_pending_active_done(engine: Engine) -> None:
             payload={"meeting_id": "m1", "kind": "standup", "attendees": ["u1"]},
         )
     )
-    assert engine.scheduler.pending_count() == 1
+    assert engine.pending_count() == 1
 
     engine.advance(1)
-    assert engine.scheduler.active_count() == 1  # now running
+    assert engine.active_count() == 1  # now running
 
     engine.advance_to(4)
-    assert engine.scheduler.pending_count() == 0
-    assert engine.scheduler.active_count() == 0  # completed
+    assert engine.pending_count() == 0
+    assert engine.active_count() == 0  # completed
     row = engine.store.db.query_one("SELECT status FROM event LIMIT 1")
     assert row["status"] == EventStatus.DONE.value

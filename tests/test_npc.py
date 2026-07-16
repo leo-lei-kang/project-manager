@@ -7,10 +7,9 @@ import pytest
 from pm.env import Env
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import WorkDriver, available_work_for
 from pm.npc.cast import CAST, MEMBERS, seed_cast
-from pm.npc.reactions import REACTIONS, react_on_tick
-from pm.sim.events import EventType, JiraTicketEvent
+from pm.sim.npc import REACTIONS, WorkDriver, available_work_for, react, react_on_tick
+from pm.sim.events import EventType, JiraTicketEvent, SlackSendEvent
 from pm.sim.simulation import Simulation
 from pm.world.models import Project
 
@@ -135,6 +134,36 @@ def test_kickoff_only_no_polling_between_completions(api: JiraApi, env: Env) -> 
     env.engine.advance(10)                       # Early completes at tick 30 → sweep
     assert api.get_issue(first.id).status == "done"
     assert api.get_issue(late.id).status == "in_progress"
+
+
+def test_pick_up_directive_preempts_current_ticket(api: JiraApi, env: Env) -> None:
+    # A PM "please pick up" directive lands mid-ticket: alice interrupts her
+    # current ticket, works the directed one first, then resumes the original.
+    current = api.create_issue("checkout", "task", "Current", estimate_minutes=60,
+                               assignee="alice", actor="erin")
+    urgent = api.create_issue("checkout", "task", "Urgent", estimate_minutes=30,
+                              assignee="alice", actor="erin")
+    driver = WorkDriver(api, ["alice"], "checkout")
+    env.engine.activities.on_activity_done = driver.on_activity_done
+    driver.sweep(env.engine)                     # kickoff: picks Current (lower id)
+    env.engine.advance(10)
+    assert api.get_issue(current.id).status == "in_progress"
+
+    # The directive fires the reaction (bump to priority 0) then re-sweeps —
+    # WorkDriver.on_tick's wiring in miniature.
+    react(env.engine, SlackSendEvent(
+        owner_id="pm", start_tick=10,
+        payload={"message_id": "m", "channel_id": "eng",
+                 "body": f"alice please pick up {urgent.id}"}))
+    driver.sweep(env.engine)
+    started = env.engine.activities.started_for("alice")
+    assert started is not None and started.params["issue_key"] == urgent.id
+
+    env.engine.advance(35)                       # Urgent (30m) completes first
+    assert api.get_issue(urgent.id).status == "done"
+    assert api.get_issue(current.id).status == "in_progress"  # resumed
+    env.engine.advance(60)                       # Current's remaining 50m
+    assert api.get_issue(current.id).status == "done"
 
 
 def test_completion_sweep_redispatches_unblocked_partner(api: JiraApi, env: Env) -> None:

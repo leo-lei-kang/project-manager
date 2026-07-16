@@ -10,35 +10,32 @@ from pm.eval import evaluate, format_report, to_dict
 from pm.exceptions import ConfigurationError
 from pm.jira.models import Issue
 from pm.jira.repository import JiraRepository
-from pm.scenarios import runner, team_no_jira, team_partial_jira, team_with_jira
-from pm.scenarios.team_with_jira import PROJECT_ID, build
+from pm.npc.persona import PERFECT
+from pm.scenarios import runner, team_no_jira, test_two_engineers_mixed
+from pm.scenarios.test_two_engineers_mixed import PROJECT_ID, build
 from pm.world.models import Person, Project
 
-EXPECTED_COUNTS = {"alice": 16, "bob": 13, "clare": 13, "david": 12, "elieen": 12}
-
-
-def _run(tmp_path, run_id, **kwargs):
-    env = build(run_id=run_id, root=tmp_path, **kwargs)
-    runner.drive(env, team_with_jira)
-    return env
+EXPECTED_COUNTS = {"alice": 8, "clare": 8}
 
 
 def test_board_project_done(tmp_path):
-    env = _run(tmp_path, "eval-ok")
+    # The two-engineer board worked perfectly: every ticket closes.
+    env = build(run_id="eval-ok", root=tmp_path, member_persona=PERFECT)
+    runner.drive(env, test_two_engineers_mixed)
     report = evaluate(env.store)
 
     assert report.goal_accomplished
     assert report.source == "board"  # no informal tasks: the Jira board stands in
     assert report.project_id == PROJECT_ID
-    assert report.done_tasks == report.total_tasks == 66
-    assert report.closed_jira_minutes == report.total_jira_minutes == 10575  # 176.25h
+    assert report.done_tasks == report.total_tasks == 16
+    assert report.closed_jira_minutes == report.total_jira_minutes == 4800  # 80h
     assert report.remaining == []
     assert {p.person_id: len(p.done) for p in report.people} == EXPECTED_COUNTS
     assert all(p.remaining == [] for p in report.people)
 
     text = format_report(report)
     assert "PROJECT DONE" in text and "NOT DONE" not in text
-    assert "176.25h" in text and "none" in text
+    assert "80h" in text and "none" in text
     env.close()
 
 
@@ -71,29 +68,16 @@ def test_board_project_unfinished(tmp_path):
 
 
 def test_notes_project_not_done_despite_empty_board(tmp_path):
-    # The board says nothing is happening; the notes show the project at 4/6.
+    # The board says nothing is happening; the notes show the project at 15/25.
     env = team_no_jira.build(run_id="eval-nj", root=tmp_path)
     runner.drive(env, team_no_jira)
     report = evaluate(env.store)
 
     assert report.source == "notes"
-    assert (report.done_tasks, report.total_tasks) == (4, 6)
+    assert (report.done_tasks, report.total_tasks) == (15, 25)
     assert not report.goal_accomplished
     assert report.closed_jira_minutes == report.total_jira_minutes == 0
-    assert {t.id for t in report.remaining} == {"NOTES-4", "NOTES-5"}
-    env.close()
-
-
-def test_notes_project_not_done_despite_green_board(tmp_path):
-    # Every filed ticket closes, but the notes show the project is twice the board.
-    env = team_partial_jira.build(run_id="eval-pj", root=tmp_path)
-    runner.drive(env, team_partial_jira)
-    report = evaluate(env.store)
-
-    assert report.source == "notes"
-    assert (report.done_tasks, report.total_tasks) == (4, 6)
-    assert not report.goal_accomplished
-    assert report.closed_jira_minutes == report.total_jira_minutes == 1200  # the filed subset
+    assert len(report.remaining) == 10 and "NOTES-25" in {t.id for t in report.remaining}
     env.close()
 
 
