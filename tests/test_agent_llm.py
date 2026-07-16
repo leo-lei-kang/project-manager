@@ -55,7 +55,8 @@ def backend(tmp_path):
 async def test_inprocess_backend_lists_and_dispatches(backend) -> None:
     b, _ = backend
     names = {t["function"]["name"] for t in await b.list_tools()}
-    assert names == {"send_slack", "read_slack", "read_jira_board", "read_calendar"}
+    assert names == {"send_slack", "read_slack", "read_jira_board", "read_calendar",
+                     "read_transcripts"}
 
     board = json.loads(await b.call("read_jira_board", {"project_id": "checkout"}))
     counts: dict[str, int] = {}

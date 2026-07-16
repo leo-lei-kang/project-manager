@@ -15,7 +15,7 @@ and the board's status rollup.
 Unlike the other examples this one **persists its run**: after it exits,
 ``runs/tight_week/seed.db`` holds the immutable seeded starting state and
 ``runs/tight_week/world.db`` holds the completed week, both inspectable with
-``uv run sqlite3`` or gradeable with ``uv run pm eval --run-id tight_week``.
+``uv run sqlite3`` or gradeable with ``uv run pm eval --scenario tight_week``.
 """
 
 from __future__ import annotations

@@ -6,8 +6,8 @@ coworkers act asynchronously, and outcomes are graded defensibly.
 
 Built in layers on a SQLite single source of truth: a **simulation kernel**, a
 **Jira-style issue tracker**, **stateful NPC coworkers** who work the board over
-sim-time, an operator CLI, and an **agent tool surface** exposed over MCP with an
-OpenRouter-driven agent — see [Architecture](#architecture-at-a-glance),
+sim-time, an operator CLI, and an **agent tool surface** driven in-process by an
+OpenRouter-hosted model — see [Architecture](#architecture-at-a-glance),
 [Agent](#agent), and [Roadmap](#roadmap).
 
 ## Architecture at a glance
@@ -39,7 +39,7 @@ pm/
   sim/          # dynamics: clock, scheduler, engine, events (durative), simulation, calendar
   jira/         # Jira-style issue tracker (its own issue tables) over the Store
   npc/          # cast (members/stakeholders/agent), board-pickup hooks, per-event reactions
-  agent/        # the agent's tool surface: AgentTools + MCP server + OpenRouter driver
+  agent/        # the agent's tool surface: AgentTools + in-process OpenRouter driver
   env/          # Env facade over store + sim kernel (make/load/reset/db)
   eval/         # deterministic evaluation over a run's final board state
   viz/          # static-HTML renderers: per-person calendars, ticket week-timeline
@@ -73,23 +73,24 @@ core simulation.
 
 ```bash
 uv sync                 # core simulation — no LLM or API key required
-uv sync --extra mcp     # + serve the agent's tools over MCP (`pm-mcp`)
 uv sync --extra agent   # + drive the agent with an OpenRouter model (`pm-agent`)
 ```
 
 ## Usage
 
+Every command takes a single `--scenario`, whose name is the run id and output
+folder — all results for a scenario live under `runs/<scenario>/`.
+
 ```bash
-# Build a scenario run and simulate its work week. The run id defaults to the
-# scenario name, so this writes runs/tight_week/{world.db, seed.db} and runs it.
+# Build a scenario run and simulate its work week -> runs/tight_week/{world.db, seed.db}.
 uv run pm sim --scenario tight_week
 
-# Evaluate the outcome.
-uv run pm eval --run-id tight_week
+# Evaluate the outcome (also written to runs/tight_week/eval.json).
+uv run pm eval --scenario tight_week
 
 # Render the ticket week-timeline + per-person calendars to static HTML:
 # writes runs/tight_week/{calendars,jira_tasks}.html.
-uv run pm viz --run-id tight_week
+uv run pm viz --scenario tight_week
 
 # Inspect the database directly.
 uv run sqlite3 runs/tight_week/world.db '.tables'
@@ -102,25 +103,23 @@ The quickest way is `pm sim` — build a scenario run and simulate its work week
 (Mon 09:00 → Fri 17:00, NPC coworkers working the board) in one command:
 
 ```bash
-uv run pm sim --scenario tight_week                    # build + simulate -> runs/tight_week/
-uv run pm sim --run-id tight_week                      # continue an existing run
-uv run pm sim --scenario tight_week --run-id myweek    # same, under a custom run id
-uv run pm sim --scenario tight_week --run-id chaos \
-              --persona free_spirit                  # seed a misbehaving persona
+uv run pm sim --scenario tight_week                  # build + simulate -> runs/tight_week/
+uv run pm sim --scenario test_two_engineers_mixed    # a mixed-persona board that misses the week
 # -> prints the simulated span (Mon 09:00 -> Fri 17:00) and the events fired.
 ```
 
-| Scenario | Stresses |
+Re-running a scenario continues an unfinished run in place. The scenario is the only
+input — there is no persona flag; **each scenario bakes in its own personas**.
+
+| Board | Stresses |
 |----------|----------|
 | `tight_week` | a capacity-saturated board the team can *barely* finish in order |
 | `test_two_engineers` | two engineers whose tickets cross-block each other just-in-time |
 | `test_single_engineer` | one overloaded engineer — priority triage decides what ships |
 
-`--persona` seeds the members' behavior when building — one preset for everyone
-(`perfect` | `heads_down` | `free_spirit`) or per-member pairs like
-`alice=free_spirit,clare=heads_down`. The `*_with_pm` scenario variants add a
-scripted PM that steers the week over Slack. Eight verified persona × PM
-configurations, with commands and outcomes, are cataloged in
+Each board ships as self-contained scenarios — a baseline persona and a
+misbehaving-persona variant. The verified persona configurations (each runnable as
+`pm sim --scenario <name>`) are cataloged with their outcomes in
 [`pm/scenarios/scenarios.md`](pm/scenarios/scenarios.md).
 
 For a per-day progress report with narration, `examples/run_tight_week.py` does
@@ -154,9 +153,9 @@ and what remains. The goal is **accomplished** when every task in the project is
 done and the last completion lands at or before the project's deadline:
 
 ```bash
-uv run pm eval --run-id tight_week           # human-readable report
-uv run pm eval --run-id tight_week --json    # the same report as JSON
-uv run pm eval --run-id demo --project GA    # pick a project explicitly
+uv run pm eval --scenario tight_week          # human-readable report (+ runs/tight_week/eval.json)
+uv run pm eval --scenario tight_week --json   # the same report as JSON on stdout
+uv run pm eval --scenario tight_week --project GA   # pick a project explicitly
 ```
 
 ```
@@ -205,55 +204,33 @@ The agent-under-test acts through a small, explicit tool surface in
 | `read_slack(channel_id)` | read | the messages in a channel |
 | `read_jira_board(project_id)` | read | the board's issues + a status breakdown |
 | `read_calendar(person_id=None)` | read | the meetings a person attends (default: the agent) |
+| `read_transcripts()` | read | the markdown transcripts of meetings that have ended — status, open questions, decisions waiting on the PM |
 
-Reads are free; only `send_slack` advances the clock. Following the
-[fleet-sdk](../fleet-sdk) pattern, these are exposed over **MCP** (name = function,
-description = docstring, schema = the typed signature) and driven by an
-**OpenRouter**-hosted model.
+Reads are free; only `send_slack` advances the clock. The tools are handed to an
+**OpenRouter**-hosted model as function schemas and driven **in-process** — a
+`model → tool call → result` loop in one process, no server or transport
+(`pm-agent` / `LLMAgent` + `InProcessBackend`).
 
 ```bash
 # 1) Create a run for the agent to act on: seed a scenario WITHOUT simulating
 #    the week (the module's __main__ builds runs/test_two_engineers/ and stops).
 uv run python -m pm.scenarios.test_two_engineers
 
-# 2) Serve the tools over MCP (binds the run named by PM_RUN_ID; defaults to "demo").
-uv sync --extra mcp
-PM_RUN_ID=test_two_engineers uv run pm-mcp   # streamable-http on PM_MCP_HOST/PM_MCP_PORT
-
-# 3) Drive the agent with an OpenRouter model. Copy .env.example -> .env and set
+# 2) Drive the agent with an OpenRouter model. Copy .env.example -> .env and set
 #    OPENROUTER_API_KEY + OPENROUTER_MODEL (any OpenRouter model id, configurable).
+#    PM_RUN_ID names the run to bind the tools to (defaults to "demo").
 uv sync --extra agent
-uv run pm-agent "Review the board and post a status update in #eng"
+PM_RUN_ID=test_two_engineers uv run pm-agent "Review the board and post a status update in #eng"
 ```
 
-`.env` (gitignored) holds `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and optional
-`PM_MCP_URL` — see [`.env.example`](.env.example).
+`.env` (gitignored) holds `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` — see
+[`.env.example`](.env.example).
 
-### Two ways to consume the server
-
-Following fleet-sdk, tool execution can happen on either side:
-
-- **Local loop** (default) — we run `model → tool call → result` ourselves. Works
-  with any OpenAI-compatible endpoint (OpenRouter) and a localhost server. This is
-  `pm-agent` / `LLMAgent` + `McpBackend`.
-- **Remote (provider-side)** — hand the server URL to a provider that runs MCP
-  itself (OpenAI Responses API, Anthropic MCP connector); it executes the tools, no
-  loop of ours. `RemoteMCP` (mirrors fleet's `SyncMCPResource`) produces the
-  descriptors; needs a URL the provider can reach (public/tunnelled, not localhost):
-
-  ```python
-  from pm.agent import remote_mcp
-  res = remote_mcp("https://my-host/mcp")   # or $PM_MCP_URL
-  res.openai()      # -> {"type": "mcp", "server_label": ..., "server_url": ..., ...}
-  res.anthropic()   # -> {"type": "url", "url": ..., "name": ...}
-  await res.list_tools()                     # live tool list (MCP handshake)
-  ```
-
-See both, self-contained (each spins up the server on a free port and tears it down):
+For a self-contained demo against a seeded throwaway board:
 
 ```bash
-uv run --extra agent python examples/run_agent_llm.py --mcp     # local loop over a real server
-uv run --extra agent python examples/run_agent_llm.py --remote  # remote descriptors + live tools
+uv run --extra agent python examples/run_agent_llm.py           # in-process loop
+uv run --extra agent python examples/run_agent_llm.py --list    # available model ids
 ```
 
 ## Tests
@@ -272,7 +249,7 @@ tools, and the `Env` run lifecycle.
 
 Built so far: the persistence + sim kernel, the `pm.jira` board, `pm.npc`
 coworkers that pick up and work issues over the week, the `Env`/CLI operator
-surface, the **agent tool surface over MCP + OpenRouter driver** (see
+surface, the **agent tool surface + in-process OpenRouter driver** (see
 [Agent](#agent)), and the first slice of the **evaluator** (`pm/eval` +
 `pm eval` — a deterministic report over the final board state; see
 [Running the evaluation](#running-the-evaluation)). Scenario state is seeded in

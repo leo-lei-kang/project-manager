@@ -80,6 +80,25 @@ class Transcript(BaseModel):
     available_tick: int
 
 
+TaskStatus = Literal["todo", "in_progress", "done"]
+
+
+class Task(BaseModel):
+    """An informal work item — a mirror of a Jira ticket that lives in meeting notes.
+
+    Created/updated when a meeting ends (from the meeting's payload), so work can
+    carry a DRI and status without any Jira issue existing for it.
+    """
+
+    id: str
+    title: str
+    dri_id: str | None = None  # the directly responsible individual
+    status: TaskStatus = "todo"
+    source_meeting_id: str | None = None
+    created_tick: int = 0
+    updated_tick: int = 0
+
+
 class Document(BaseModel):
     id: str
     title: str

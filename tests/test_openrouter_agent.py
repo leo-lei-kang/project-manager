@@ -1,7 +1,7 @@
 """The LLM agent loop — model → tool_call → result → final answer.
 
-Uses fakes for the model client and tool backend, so it needs no network, no
-OpenRouter key, and no running MCP server.
+Uses fakes for the model client and tool backend, so it needs no network and no
+OpenRouter key.
 """
 
 from __future__ import annotations

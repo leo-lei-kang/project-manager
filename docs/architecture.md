@@ -60,6 +60,29 @@ tables via `pm/jira/repository.py` (idempotent `CREATE TABLE IF NOT EXISTS`, no
 edit to the core schema). Because state is plain SQLite plus an append-only
 `event_log` trace, any run is auditable with the stock `sqlite3` CLI.
 
+## Operator surface (scenario-keyed)
+
+The CLI (`pm/cli.py`) is deliberately narrow: `sim`, `eval`, and `viz` each take a
+single `--scenario`, and **the scenario name is the run id and the output folder**.
+There is no persona or run-id flag — **each scenario module bakes in its own
+personas** (`build(member_persona=…)` defaults, applied via
+`pm/npc/cast.py::with_personas`), so `pm sim --scenario X` alone reproduces that
+scenario's documented outcome. One scenario → one run.
+
+Everything a scenario produces lives under **`runs/<scenario>/`**, the self-contained
+result bundle:
+
+- `world.db`, `seed.db` — from `sim` (the finished world + its immutable seed).
+- `eval.json` — from `eval` (`to_dict(report)`, written alongside the printed report).
+- `calendars.html`, `jira_tasks.html` — from `viz` (static HTML/SVG, no JS/browser).
+
+`pm/scenarios/runner.py::drive` is the shared driver used by both `pm sim` and the
+catalog test: it composes each scenario's member pickup hook with an optional PM
+review hook (`agent_review_hook`, run first so a same-tick close/directive lands before
+the person it steers picks), runs the week, and fires a final PM close-out. The registered
+scenarios and their verified outcomes are cataloged in
+[`pm/scenarios/scenarios.md`](../pm/scenarios/scenarios.md).
+
 ## How events are scheduled
 
 Every asynchronous activity is one durative **`Event`** (`pm/sim/events.py`) with a

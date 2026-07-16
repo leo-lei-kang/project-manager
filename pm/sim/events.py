@@ -30,7 +30,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from pm.world.models import Email, Meeting, Message, Transcript
+from pm.world.models import Email, Meeting, Message, Task, Transcript
 
 if TYPE_CHECKING:  # avoid runtime import cycles; used only for typing
     from pm.jira.api import JiraApi
@@ -336,13 +336,30 @@ class MeetingEvent(Event):
 
     def _on_done(self, engine: "Engine") -> None:
         p = self.payload
-        if "transcript_id" in p:
-            engine.store.add_transcript(
-                Transcript(
-                    id=p["transcript_id"],
-                    meeting_id=p["meeting_id"],
-                    body=p.get("transcript_body", ""),
-                    available_tick=engine.clock.now(),
+        now = engine.clock.now()
+        # Every meeting leaves a transcript when it ends (empty body by default).
+        engine.store.add_transcript(
+            Transcript(
+                id=p.get("transcript_id", f"tr-{p['meeting_id']}"),
+                meeting_id=p["meeting_id"],
+                body=p.get("transcript_body", ""),
+                available_tick=now,
+            )
+        )
+        # Tasks named in the meeting land in the informal `task` table — work can
+        # exist with a DRI and status without any Jira ticket being filed.
+        known = {t.id: t for t in engine.store.list_tasks()} if p.get("tasks") else {}
+        for entry in p.get("tasks", []):
+            existing = known.get(entry["id"])
+            engine.store.upsert_task(
+                Task(
+                    id=entry["id"],
+                    title=entry.get("title", existing.title if existing else entry["id"]),
+                    dri_id=entry.get("dri_id", existing.dri_id if existing else None),
+                    status=entry.get("status", existing.status if existing else "todo"),
+                    source_meeting_id=existing.source_meeting_id if existing else p["meeting_id"],
+                    created_tick=existing.created_tick if existing else now,
+                    updated_tick=now,
                 )
             )
 

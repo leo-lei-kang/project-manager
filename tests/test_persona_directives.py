@@ -1,31 +1,22 @@
-"""The scripted PM and per-member personas: the machinery behind scenarios.md.
+"""Per-member personas and the Slack directive levers behind scenarios.md.
 
-Covers the two Slack levers (close-by-name, "pick up" directive), the
-priority-0 override in ticket picking, per-member persona seeding, the CLI
---persona parsing, and the flagship before/after pair: a mixed-persona board
-that misses the week unmanaged and finishes at Fri 17:00 with the PM hook.
+Covers the two Slack levers the world reacts to (close-by-name, "pick up"
+directive with its priority-0 override), per-member persona seeding, and the
+unmanaged mixed-persona board that misses the week.
 """
 
 from __future__ import annotations
 
 import pytest
-import typer
 
-from pm.cli import _parse_personas
 from pm.eval import evaluate
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
-from pm.npc.behavior import assignee_pickup_hook, compose
+from pm.npc.behavior import assignee_pickup_hook
 from pm.npc.cast import CAST, with_personas
 from pm.npc.persona import FREE_SPIRIT, HEADS_DOWN, PERFECT
 from pm.npc.reactions import react
-from pm.scenarios import (
-    test_single_engineer,
-    test_single_engineer_with_pm,
-    test_two_engineers,
-    test_two_engineers_with_pm,
-)
-from pm.sim.clock import WEEK_END_TICK
+from pm.scenarios import test_two_engineers
 from pm.sim.events import SlackSendEvent
 from pm.sim.simulation import Simulation
 
@@ -37,17 +28,11 @@ def _slack(body: str) -> SlackSendEvent:
                           payload={"message_id": "m", "channel_id": "eng", "body": body})
 
 
-def _run(module, personas, tmp_path, *, with_pm: bool):
+def _run(module, personas, tmp_path):
     env = module.build(run_id="run", root=tmp_path, member_persona=personas)
     api = JiraApi(JiraRepository(env.store), env.engine)
     pickup = assignee_pickup_hook(api, module.MEMBERS, module.PROJECT_ID)
-    sim = Simulation(env)
-    if with_pm:
-        review = module.agent_review_hook(env)
-        sim.run(on_tick=compose(review, pickup))
-        review(sim)  # the PM's week-end close-out, as `pm sim` does
-    else:
-        sim.run(on_tick=pickup)
+    Simulation(env).run(on_tick=pickup)
     return env, api
 
 
@@ -64,22 +49,6 @@ def test_with_personas_mixed_assignment():
 def test_with_personas_rejects_unknown_member():
     with pytest.raises(ValueError, match="unknown cast member"):
         with_personas(CAST, {"nobody": PERFECT})
-
-
-# -- CLI --persona parsing ------------------------------------------------------
-
-def test_parse_personas_uniform_and_mixed():
-    assert _parse_personas("perfect", ["alice"]) is PERFECT
-    mixed = _parse_personas("alice=free_spirit,clare=heads_down", ["alice", "clare"])
-    assert mixed == {"alice": FREE_SPIRIT, "clare": HEADS_DOWN}
-
-def test_parse_personas_rejects_bad_input():
-    with pytest.raises(typer.BadParameter):
-        _parse_personas("nope", ["alice"])
-    with pytest.raises(typer.BadParameter):
-        _parse_personas("bob=perfect", ["alice"])
-    with pytest.raises(typer.BadParameter):
-        _parse_personas("alice=nope", ["alice"])
 
 
 # -- the Slack directive lever --------------------------------------------------
@@ -105,28 +74,11 @@ def test_highlight_without_pick_up_steers_nothing(tmp_path):
     env.close()
 
 
-# -- the before/after pairs (scenarios.md rows 3, 5, 6) -------------------------
-
-def test_directed_free_spirit_ships_all_launch_blockers(tmp_path):
-    env, api = _run(test_single_engineer_with_pm, FREE_SPIRIT, tmp_path, with_pm=True)
-    tasks = api.search(project_id=test_single_engineer_with_pm.PROJECT_ID, issue_type="task")
-    assert sum(1 for t in tasks if t.status == "done") == 8  # 40h week, 60h board
-    # every launch blocker shipped (identify by title: a PM bump rewrites priority)
-    blockers = {title for title, _ in test_single_engineer.HIGH}
-    assert blockers <= {t.title for t in tasks if t.status == "done"}
-    env.close()
+# -- the unmanaged mixed board (scenarios.md row 4) ------------------------------
 
 def test_mixed_pair_misses_the_week_unmanaged(tmp_path):
-    env, _ = _run(test_two_engineers, MIX, tmp_path, with_pm=False)
+    env, _ = _run(test_two_engineers, MIX, tmp_path)
     report = evaluate(env.store)
     assert not report.goal_accomplished
     assert report.done_tasks < report.total_tasks
-    env.close()
-
-def test_mixed_pair_finishes_with_scripted_pm(tmp_path):
-    env, api = _run(test_two_engineers_with_pm, MIX, tmp_path, with_pm=True)
-    report = evaluate(env.store)
-    assert report.goal_accomplished
-    assert (report.done_tasks, report.last_done_tick) == (16, WEEK_END_TICK)
-    assert env.store.list_messages("eng")  # the PM actually spoke
     env.close()

@@ -78,12 +78,13 @@ def _meeting_start(engine: "Engine", a: Activity) -> None:
 
 
 def _meeting_done(engine: "Engine", a: Activity) -> None:
+    # Every meeting leaves a transcript when it ends (empty body by default).
     p = a.params
-    if "transcript_id" in p:
-        engine.store.add_transcript(Transcript(
-            id=p["transcript_id"], meeting_id=p.get("meeting_id", f"mtg-{a.id}"),
-            body=p.get("transcript_body", ""), available_tick=engine.clock.now(),
-        ))
+    meeting_id = p.get("meeting_id", f"mtg-{a.id}")
+    engine.store.add_transcript(Transcript(
+        id=p.get("transcript_id", f"tr-{meeting_id}"), meeting_id=meeting_id,
+        body=p.get("transcript_body", ""), available_tick=engine.clock.now(),
+    ))
 
 
 def _write_doc_done(engine: "Engine", a: Activity) -> None:

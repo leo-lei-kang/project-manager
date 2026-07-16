@@ -6,7 +6,7 @@ Thin wrapper over :func:`pm.viz.write_calendars`: reads
 ``runs/<run_id>/world.db`` and writes ``runs/<run_id>/calendars.html`` — one
 Mon–Fri 09:00–17:00 grid per person, blocks colored by kind (meeting / work /
 OOO), positioned at 1px per tick (minute). Works for seed-state, mid-run, and
-completed runs alike. Also available as ``uv run pm viz --run-id <run_id>``.
+completed runs alike. Also available as ``uv run pm viz --scenario <scenario>``.
 """
 
 from __future__ import annotations

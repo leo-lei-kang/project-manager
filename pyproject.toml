@@ -10,14 +10,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Serve the agent's tools over MCP (`pm-mcp`); the core sim needs no LLM/API key.
-mcp = ["mcp>=1.24"]
-# Drive the PM agent over MCP with an OpenRouter-hosted model (`pm-agent`).
-agent = ["mcp>=1.24", "openai>=1.0", "python-dotenv>=1.0"]
+# Drive the PM agent in-process with an OpenRouter-hosted model (`pm-agent`);
+# the core sim needs no LLM/API key.
+agent = ["openai>=1.0", "python-dotenv>=1.0"]
 
 [project.scripts]
 pm = "pm.cli:app"
-pm-mcp = "pm.agent.mcp_server:main"
 pm-agent = "pm.agent.openrouter_agent:main"
 
 [dependency-groups]
@@ -58,7 +56,7 @@ warn_unused_configs = true
 files = ["pm"]
 
 [[tool.mypy.overrides]]
-module = ["mcp.*", "openai.*", "dotenv.*"]
+module = ["openai.*", "dotenv.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

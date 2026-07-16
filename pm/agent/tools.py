@@ -8,7 +8,7 @@ over the existing world:
     so they consume sim-time and appear in the action log — the same contract the
     Jira tools use.
   * **Reads** are pure queries with no sim-time cost, returning plain JSON-ready
-    dicts (what an LLM/MCP tool would consume), not internal model objects.
+    dicts (what an LLM tool would consume), not internal model objects.
 
 The agent's identity defaults to the cast's ``AGENT`` (``"pm"``).
 """
@@ -87,3 +87,24 @@ class AgentTools:
         """Return the meetings ``person_id`` (default: the agent) attends, in order."""
         who = person_id or self.actor
         return [m.model_dump() for m in self.env.store.list_meetings(attendee_id=who)]
+
+    def read_transcripts(self) -> list[dict[str, Any]]:
+        """Return the meeting transcripts available so far (no sim-time cost).
+
+        A transcript becomes available when its meeting ends; each entry carries
+        the meeting's title and time alongside the markdown body, so the agent
+        can review what was said (status, open questions, unresolved decisions).
+        """
+        now = self.env.clock.now()
+        titles = {m.id: m for m in self.env.store.list_meetings()}
+        out = []
+        for t in self.env.store.list_transcripts(available_by=now):
+            meeting = titles.get(t.meeting_id)
+            out.append({
+                "meeting_id": t.meeting_id,
+                "title": meeting.title if meeting else "",
+                "start_tick": meeting.start_tick if meeting else None,
+                "available_tick": t.available_tick,
+                "body": t.body,
+            })
+        return out

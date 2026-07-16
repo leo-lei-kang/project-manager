@@ -7,7 +7,7 @@ Thin wrapper over :func:`pm.viz.write_jira_tasks`: reads
 Gantt-style inline-SVG timeline over the 5-day × 8-hour week (one lane per
 person, one bar per ticket at its actually-worked interval, dependency arrows),
 plus a numbered completion order from a deterministic topological sort. Also
-available as ``uv run pm viz --run-id <run_id>``.
+available as ``uv run pm viz --scenario <scenario>``.
 """
 
 from __future__ import annotations

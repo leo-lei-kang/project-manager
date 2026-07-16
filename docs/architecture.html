@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PM Simulation — Architecture</title>
+<style>
+  :root {
+    --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#ffffff; --border:#e2e8f0;
+    --accent:#2563eb;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sim-bg:#dbeafe; --sim-fg:#1e40af; --sim-bd:#93c5fd;
+    --npc-bg:#dcfce7; --npc-fg:#166534; --npc-bd:#86efac;
+    --agent-bg:#f3e8ff; --agent-fg:#6b21a8; --agent-bd:#d8b4fe;
+    --db-bg:#fef3c7;  --db-fg:#92400e;  --db-bd:#fcd34d;
+    --drv-bg:#e2e8f0; --drv-fg:#334155; --drv-bd:#cbd5e1;
+    --jira-bg:#ffedd5; --jira-fg:#c2410c; --jira-bd:#fdba74;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b1120; --fg:#e2e8f0; --muted:#94a3b8; --card:#111a2e; --border:#243049;
+      --accent:#60a5fa;
+      --sim-bg:#172554; --sim-fg:#93c5fd; --sim-bd:#1e40af;
+      --npc-bg:#052e16; --npc-fg:#86efac; --npc-bd:#166534;
+      --agent-bg:#2e1065; --agent-fg:#d8b4fe; --agent-bd:#6b21a8;
+      --db-bg:#3b2405;  --db-fg:#fcd34d;  --db-bd:#92400e;
+      --drv-bg:#1e293b; --drv-fg:#cbd5e1; --drv-bd:#334155;
+      --jira-bg:#431407; --jira-fg:#fdba74; --jira-bd:#c2410c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  header.doc { border-bottom: 1px solid var(--border); padding-bottom: 1.25rem; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .35rem; }
+  .subtitle { color: var(--muted); margin: 0; }
+  h2 { font-size: 1.35rem; margin: 3rem 0 .75rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
+  p { margin: .6rem 0; }
+  code, .path {
+    font-family: var(--mono); font-size: .84em;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 5px; padding: .08em .35em;
+  }
+  pre {
+    font-family: var(--mono); font-size: .82rem; line-height: 1.5;
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: .9rem 1rem; overflow-x: auto;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: .9rem 0; font-size: .88rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--card); font-weight: 600; }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--card) 55%, transparent); }
+  .chip {
+    display: inline-block; font-family: var(--mono); font-size: .74rem;
+    border-radius: 999px; padding: .05rem .55rem; border: 1px solid; white-space: nowrap;
+  }
+  .chip.sim   { background: var(--sim-bg);   color: var(--sim-fg);   border-color: var(--sim-bd); }
+  .chip.npc   { background: var(--npc-bg);   color: var(--npc-fg);   border-color: var(--npc-bd); }
+  .chip.agent { background: var(--agent-bg); color: var(--agent-fg); border-color: var(--agent-bd); }
+  .chip.db    { background: var(--db-bg);    color: var(--db-fg);    border-color: var(--db-bd); }
+  .chip.drv   { background: var(--drv-bg);   color: var(--drv-fg);   border-color: var(--drv-bd); }
+  .chip.jira  { background: var(--jira-bg);  color: var(--jira-fg);  border-color: var(--jira-bd); }
+  nav.toc {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: .9rem 1.1rem; margin: 1.25rem 0 0;
+  }
+  nav.toc ol { margin: .25rem 0 0; padding-left: 1.3rem; columns: 2; column-gap: 2.5rem; }
+  nav.toc li { margin: .15rem 0; break-inside: avoid; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  figure { margin: 1.2rem 0; }
+  figure svg {
+    width: 100%; height: auto; display: block;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  }
+  figcaption { color: var(--muted); font-size: .82rem; margin-top: .45rem; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } nav.toc ol { columns: 1; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: .9rem 1.1rem; }
+  .card h4 { margin: 0 0 .4rem; font-size: .95rem; }
+  .card p, .card ul { font-size: .88rem; margin: .35rem 0; }
+  .card ul { padding-left: 1.15rem; }
+  .note {
+    border-left: 3px solid var(--accent); background: var(--card);
+    padding: .6rem .9rem; border-radius: 0 8px 8px 0; font-size: .9rem; margin: 1rem 0;
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0 0; }
+  ul { margin: .5rem 0; }
+  li { margin: .2rem 0; }
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: .82rem; }
+
+  /* --- SVG diagram styles ------------------------------------------------ */
+  svg text { font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; fill: var(--fg); }
+  svg text.t  { font-weight: 600; }
+  svg text.s  { font-size: 11px; fill: var(--muted); }
+  svg text.m  { font-family: var(--mono); font-size: 11px; }
+  svg text.el { font-size: 10.5px; fill: var(--muted); }
+  svg .bx-sim   { fill: var(--sim-bg);   stroke: var(--sim-bd); }
+  svg .bx-npc   { fill: var(--npc-bg);   stroke: var(--npc-bd); }
+  svg .bx-agent { fill: var(--agent-bg); stroke: var(--agent-bd); }
+  svg .bx-db    { fill: var(--db-bg);    stroke: var(--db-bd); }
+  svg .bx-drv   { fill: var(--drv-bg);   stroke: var(--drv-bd); }
+  svg .bx-out   { fill: none; stroke: var(--sim-bd); stroke-dasharray: 4 3; }
+  svg rect { stroke-width: 1.4; rx: 8; }
+  svg .edge { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+  svg .edge.dash { stroke-dasharray: 5 4; }
+  svg .life { stroke: var(--border); stroke-width: 1.2; stroke-dasharray: 4 4; }
+</style>
+</head>
+<body>
+<main>
+
+<header class="doc">
+  <h1>PM Simulation — Architecture</h1>
+  <p class="subtitle">A deterministic, SQLite-backed simulation of a software team's work week
+  (Mon&nbsp;09:00 → Fri&nbsp;17:00). NPC coworkers work a Jira board over simulated time;
+  a PM agent-under-test observes and steers them through Slack.</p>
+  <nav class="toc">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#overview">Overview &amp; repo layout</a></li>
+      <li><a href="#system">System diagram</a></li>
+      <li><a href="#clock">The clock</a></li>
+      <li><a href="#events">Events</a></li>
+      <li><a href="#simwork">Sim work: sync vs async</a></li>
+      <li><a href="#activities">Activities</a></li>
+      <li><a href="#npcs">NPCs &amp; personas</a></li>
+      <li><a href="#agent">The PM agent ↔ the sim</a></li>
+      <li><a href="#persistence">Persistence &amp; scenarios</a></li>
+    </ol>
+  </nav>
+</header>
+
+<!-- ================================================================== -->
+<h2 id="overview">1. Overview &amp; repo layout</h2>
+
+<p>Everything lives under <span class="path">pm/</span>. The design has three central invariants:</p>
+<ul>
+  <li><strong>SQLite is the single source of truth.</strong> Each run owns
+      <span class="path">runs/&lt;id&gt;/world.db</span> (live state) plus an immutable
+      <span class="path">seed.db</span> snapshot, so runs are replayable and gradable.</li>
+  <li><strong>Only the engine mutates the world.</strong> All writes go through the typed
+      <code>Store</code>, driven either by <code>Engine.perform_action</code> (agent tools) or by an
+      event's <code>start()</code>/<code>done()</code> hooks.</li>
+  <li><strong>Determinism.</strong> Event ordering is <code>(start_tick, seq)</code>, NPC randomness is
+      seeded, and time only moves through the engine — never a background thread.</li>
+</ul>
+
+<table>
+  <thead><tr><th>Module</th><th>Group</th><th>Responsibility</th></tr></thead>
+  <tbody>
+    <tr><td><span class="path">pm/sim/</span></td><td><span class="chip sim">sim core</span></td>
+        <td>Clock, events, engine, scheduler, per-NPC calendar (occupancy contention), activities, and the week loop (<code>simulation.py</code>).</td></tr>
+    <tr><td><span class="path">pm/db/</span></td><td><span class="chip db">persistence</span></td>
+        <td><code>database.py</code> (raw sqlite3 wrapper), <code>store.py</code> (the only typed mutation interface), <code>schema.sql</code>.</td></tr>
+    <tr><td><span class="path">pm/world/</span></td><td><span class="chip db">persistence</span></td>
+        <td>Pydantic entities: Person, Project, Channel, Message, Email, Meeting, Transcript, Document, LogEntry.</td></tr>
+    <tr><td><span class="path">pm/npc/</span></td><td><span class="chip npc">npc</span></td>
+        <td>Cast roster, personas, per-tick work-pickup hooks (<code>behavior.py</code>), and per-event reactions.</td></tr>
+    <tr><td><span class="path">pm/agent/</span></td><td><span class="chip agent">agent</span></td>
+        <td>The PM agent-under-test: <code>AgentTools</code> capability surface, FastMCP server, OpenRouter LLM loop.</td></tr>
+    <tr><td><span class="path">pm/jira/</span></td><td><span class="chip jira">jira</span></td>
+        <td>Jira-shaped subsystem: Issue models, repository (adds <code>issue</code>/<code>issue_dependency</code> tables), <code>JiraApi</code> (transitions, derived-blocked).</td></tr>
+    <tr><td><span class="path">pm/scenarios/</span></td><td><span class="chip drv">driver</span></td>
+        <td>Scenario modules (seeded casts + boards + meetings), the shared <code>runner.drive</code> loop, and a procedural generator.</td></tr>
+    <tr><td><span class="path">pm/transcript/</span></td><td><span class="chip drv">driver</span></td>
+        <td>Authored standup transcripts (<code>standup-0.md</code>…<code>standup-4.md</code>) surfaced through meetings.</td></tr>
+    <tr><td><span class="path">pm/env/</span></td><td><span class="chip drv">driver</span></td>
+        <td><code>Env</code> facade — owns the Store and the Engine for one run.</td></tr>
+    <tr><td><span class="path">pm/eval/</span>, <span class="path">pm/viz/</span></td><td><span class="chip drv">driver</span></td>
+        <td>Deterministic board grading; static HTML rendering of calendars and boards.</td></tr>
+    <tr><td><span class="path">pm/cli.py</span></td><td><span class="chip drv">driver</span></td>
+        <td>Operator CLI (Typer): <code>pm sim | eval | viz</code> with the scenario catalog.</td></tr>
+  </tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="system">2. System diagram</h2>
+
+<p>One driving loop (left) and one agent path (right), meeting at the engine and the database.
+Scenario hooks fire every simulated minute; events carry all durative work; SQLite records everything.</p>
+
+<figure>
+<svg viewBox="0 0 990 742" role="img" aria-label="System architecture diagram">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+
+  <!-- Row A: drivers -->
+  <rect class="bx-drv" x="16" y="18" width="120" height="46"/>
+  <text class="t" x="76" y="38" text-anchor="middle">cli.py</text>
+  <text class="s" x="76" y="54" text-anchor="middle">pm sim</text>
+
+  <rect class="bx-drv" x="166" y="18" width="200" height="46"/>
+  <text class="t" x="266" y="38" text-anchor="middle">scenario.build()</text>
+  <text class="s" x="266" y="54" text-anchor="middle">seed cast · board · meetings</text>
+
+  <rect class="bx-drv" x="396" y="18" width="220" height="46"/>
+  <text class="t" x="506" y="38" text-anchor="middle">runner.drive(env, module)</text>
+  <text class="s" x="506" y="54" text-anchor="middle">compose(PM hook, pickup hook)</text>
+
+  <line class="edge" x1="136" y1="41" x2="164" y2="41" marker-end="url(#arr)"/>
+  <line class="edge" x1="366" y1="41" x2="394" y2="41" marker-end="url(#arr)"/>
+
+  <!-- Agent stack (right column) -->
+  <rect class="bx-agent" x="700" y="18" width="244" height="46"/>
+  <text class="t" x="822" y="38" text-anchor="middle">LLMAgent</text>
+  <text class="s" x="822" y="54" text-anchor="middle">agent/openrouter_agent.py — tool loop</text>
+
+  <rect class="bx-agent" x="700" y="98" width="244" height="46"/>
+  <text class="t" x="822" y="118" text-anchor="middle">MCP server “pm-agent”</text>
+  <text class="s" x="822" y="134" text-anchor="middle">agent/mcp_server.py · streamable-http :8765</text>
+
+  <rect class="bx-agent" x="700" y="178" width="244" height="88"/>
+  <text class="t" x="822" y="198" text-anchor="middle">AgentTools — agent/tools.py</text>
+  <text class="m" x="822" y="218" text-anchor="middle">send_slack  (costs sim-time)</text>
+  <text class="m" x="822" y="234" text-anchor="middle">read_slack · read_jira_board</text>
+  <text class="m" x="822" y="250" text-anchor="middle">read_calendar · read_transcripts</text>
+
+  <line class="edge" x1="822" y1="64" x2="822" y2="96" marker-end="url(#arr)"/>
+  <text class="el" x="830" y="84">McpBackend</text>
+  <line class="edge" x1="822" y1="144" x2="822" y2="176" marker-end="url(#arr)"/>
+  <path class="edge dash" d="M 944 41 C 984 70 984 160 946 200" marker-end="url(#arr)"/>
+  <text class="el" x="822" y="284" text-anchor="middle">dashed bypass: InProcessBackend (tests) — no MCP server</text>
+
+  <!-- Row B: Simulation -->
+  <rect class="bx-sim" x="166" y="110" width="300" height="48"/>
+  <text class="t" x="316" y="130" text-anchor="middle">Simulation.run(on_tick) — sim/simulation.py</text>
+  <text class="s" x="316" y="146" text-anchor="middle">week loop: while now &lt; 2400 → on_tick, then step()</text>
+  <line class="edge" x1="506" y1="64" x2="420" y2="108" marker-end="url(#arr)"/>
+
+  <!-- Row C: on_tick hooks -->
+  <rect class="bx-npc" x="16" y="186" width="210" height="64"/>
+  <text class="t" x="121" y="206" text-anchor="middle">NPC behavior hooks</text>
+  <text class="s" x="121" y="222" text-anchor="middle">npc/behavior.py — pick next</text>
+  <text class="s" x="121" y="237" text-anchor="middle">ready issue per persona</text>
+
+  <line class="edge" x1="240" y1="158" x2="150" y2="184" marker-end="url(#arr)"/>
+  <text class="el" x="180" y="172">on_tick (every minute)</text>
+
+  <!-- Row D: Engine -->
+  <rect class="bx-out" x="16" y="290" width="660" height="180"/>
+  <text class="t" x="30" y="312">Engine — sim/engine.py</text>
+
+  <rect class="bx-sim" x="32" y="326" width="300" height="64"/>
+  <text class="t" x="182" y="344" text-anchor="middle">Scheduler → calendar.reserve</text>
+  <text class="s" x="182" y="360" text-anchor="middle">order (start_tick, seq) · yield / bump by priority</text>
+  <text class="s" x="182" y="375" text-anchor="middle">OOO 200 &gt; MEETING 100 &gt; JIRA_TICKET 20</text>
+
+  <rect class="bx-sim" x="352" y="326" width="150" height="64"/>
+  <text class="t" x="427" y="344" text-anchor="middle">perform_action</text>
+  <text class="s" x="427" y="360" text-anchor="middle">sync: effect now,</text>
+  <text class="s" x="427" y="375" text-anchor="middle">then advance(cost)</text>
+
+  <rect class="bx-sim" x="522" y="326" width="138" height="64"/>
+  <text class="t" x="591" y="344" text-anchor="middle">step()</text>
+  <text class="s" x="591" y="360" text-anchor="middle">async: +1 min — start</text>
+  <text class="s" x="591" y="375" text-anchor="middle">due, complete finished</text>
+
+  <rect class="bx-sim" x="352" y="402" width="308" height="52"/>
+  <text class="t" x="506" y="422" text-anchor="middle">ActivityManager — sim/activity.py</text>
+  <text class="s" x="506" y="438" text-anchor="middle">one started per attender · interrupt/resume · ticked each step</text>
+
+  <line class="edge" x1="121" y1="250" x2="140" y2="324" marker-end="url(#arr)"/>
+  <text class="el" x="150" y="278">sim.schedule(Event)</text>
+  <line class="edge" x1="450" y1="158" x2="580" y2="324" marker-end="url(#arr)"/>
+  <text class="el" x="500" y="240">step() every minute</text>
+  <line class="edge" x1="700" y1="222" x2="504" y2="345" marker-end="url(#arr)"/>
+  <text class="el" x="530" y="300">send_slack → perform_action(cost=1)</text>
+  <line class="edge" x1="591" y1="390" x2="591" y2="400" marker-end="url(#arr)"/>
+
+  <!-- Row E: events + reactions -->
+  <rect class="bx-sim" x="16" y="498" width="430" height="64"/>
+  <text class="t" x="231" y="518" text-anchor="middle">Event effects — sim/events.py</text>
+  <text class="s" x="231" y="534" text-anchor="middle">_on_start / _on_done → messages · emails · meetings</text>
+  <text class="s" x="231" y="549" text-anchor="middle">transcripts · Jira transitions (via JiraApi)</text>
+
+  <rect class="bx-npc" x="470" y="498" width="206" height="64"/>
+  <text class="t" x="573" y="518" text-anchor="middle">reactions.react</text>
+  <text class="s" x="573" y="534" text-anchor="middle">npc/reactions.py — chaining,</text>
+  <text class="s" x="573" y="549" text-anchor="middle">standup closes, Slack directives</text>
+
+  <line class="edge" x1="231" y1="470" x2="231" y2="496" marker-end="url(#arr)"/>
+  <text class="el" x="240" y="488">start() / done()</text>
+  <line class="edge" x1="446" y1="530" x2="468" y2="530" marker-end="url(#arr)"/>
+  <line class="edge" x1="600" y1="496" x2="600" y2="472" marker-end="url(#arr)"/>
+  <text class="el" x="608" y="488">schedule follow-ups</text>
+
+  <!-- Row F: SQLite -->
+  <rect class="bx-db" x="16" y="592" width="928" height="72"/>
+  <text class="t" x="480" y="612" text-anchor="middle">SQLite — runs/&lt;id&gt;/world.db · single source of truth (db/store.py → db/database.py)</text>
+  <text class="m" x="480" y="632" text-anchor="middle">meta(current_tick) · event (the queue) · event_log · occupancy · person · channel/message · email · meeting</text>
+  <text class="m" x="480" y="648" text-anchor="middle">transcript · document  +  issue / issue_dependency (pm/jira)  +  activity (sim/activity)</text>
+
+  <line class="edge" x1="231" y1="562" x2="231" y2="590" marker-end="url(#arr)"/>
+  <text class="el" x="240" y="580">single writer: Store</text>
+  <line class="edge dash" x1="822" y1="266" x2="822" y2="590" marker-end="url(#arr)"/>
+  <text class="el" x="830" y="430" text-anchor="middle" transform="rotate(90 830 430)">pure reads (no sim-time)</text>
+
+  <!-- Row G: snapshot + consumers -->
+  <rect class="bx-db" x="16" y="694" width="300" height="40"/>
+  <text class="s" x="166" y="718" text-anchor="middle"><tspan class="t">seed.db</tspan> — immutable snapshot (reset / grading diff)</text>
+  <rect class="bx-drv" x="346" y="694" width="330" height="40"/>
+  <text class="s" x="511" y="718" text-anchor="middle">consumers: <tspan class="m">eval/report.py</tspan> (grading) · <tspan class="m">viz/</tspan> (HTML)</text>
+  <line class="edge dash" x1="166" y1="664" x2="166" y2="692" marker-end="url(#arr)"/>
+  <line class="edge dash" x1="511" y1="664" x2="511" y2="692" marker-end="url(#arr)"/>
+</svg>
+<figcaption>The driving loop (CLI → scenario → runner → Simulation → Engine → Store) and the agent path
+(LLM → MCP → AgentTools). Reads are free; the only agent mutation, <code>send_slack</code>, goes through
+<code>perform_action</code> and therefore costs sim-time.</figcaption>
+</figure>
+
+<div class="legend">
+  <span class="chip sim">sim core</span>
+  <span class="chip npc">npc</span>
+  <span class="chip agent">agent</span>
+  <span class="chip db">persistence</span>
+  <span class="chip drv">driver</span>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="clock">3. The clock <span class="path">pm/sim/clock.py</span></h2>
+
+<p>Sim-time is measured in integer <strong>ticks — one tick is one simulated minute</strong> — persisted in
+<code>meta.current_tick</code>, so time survives save/resume and is fully decoupled from wall-clock
+(one agent action may cost many ticks regardless of how long the model took to decide).</p>
+
+<p>The calendar is <strong>work-hours only</strong>: time exists during 09:00–17:00 on weekdays.
+Nights and weekends don't exist in tick space — 17:00 rolls straight into the next 09:00, so a delay
+that crosses 5pm lands the next morning automatically.</p>
+
+<figure>
+<svg viewBox="0 0 920 106" role="img" aria-label="Work-week tick timeline">
+  <text class="s" x="460" y="18" text-anchor="middle">1 tick = 1 sim minute · 480 ticks per workday · 17:00 → next 09:00 (nights don't exist)</text>
+  <rect class="bx-sim" x="40"  y="30" width="168" height="32" rx="0"/>
+  <rect class="bx-drv" x="208" y="30" width="168" height="32" rx="0"/>
+  <rect class="bx-sim" x="376" y="30" width="168" height="32" rx="0"/>
+  <rect class="bx-drv" x="544" y="30" width="168" height="32" rx="0"/>
+  <rect class="bx-sim" x="712" y="30" width="168" height="32" rx="0"/>
+  <text class="t" x="124" y="51" text-anchor="middle">Mon</text>
+  <text class="t" x="292" y="51" text-anchor="middle">Tue</text>
+  <text class="t" x="460" y="51" text-anchor="middle">Wed</text>
+  <text class="t" x="628" y="51" text-anchor="middle">Thu</text>
+  <text class="t" x="796" y="51" text-anchor="middle">Fri</text>
+  <text class="m" x="40"  y="80" text-anchor="middle">0</text>
+  <text class="m" x="208" y="80" text-anchor="middle">480</text>
+  <text class="m" x="376" y="80" text-anchor="middle">960</text>
+  <text class="m" x="544" y="80" text-anchor="middle">1440</text>
+  <text class="m" x="712" y="80" text-anchor="middle">1920</text>
+  <text class="m" x="880" y="80" text-anchor="middle">2400</text>
+  <text class="el" x="40"  y="97" text-anchor="middle">Mon 09:00</text>
+  <text class="el" x="908" y="97" text-anchor="end">Fri 17:00 (week end)</text>
+</svg>
+<figcaption>Tick space: <code>WEEK_START_TICK = 0</code> (Mon 09:00) → <code>WEEK_END_TICK = 2400</code>
+(Fri 17:00, the terminal boundary). <code>TICKS_PER_WEEK = 5 × 480</code>.</figcaption>
+</figure>
+
+<ul>
+  <li><strong>Module helpers</strong> — <code>hours(n)</code>, <code>days(n)</code>, <code>weekday(tick)</code>,
+      <code>hh_mm(tick)</code>, <code>is_within_week(tick)</code>,
+      <code>format_tick(tick)</code> → <code>"Wed 14:30"</code>.</li>
+  <li><strong><code>SimClock(store)</code></strong> — <code>now()</code> reads the tick,
+      <code>advance(delta)</code> writes it (delta must be non-negative: time never runs backwards),
+      <code>as_clock_str()</code> renders it. The only mover of the clock is the engine.</li>
+</ul>
+
+<!-- ================================================================== -->
+<h2 id="events">4. Events <span class="path">pm/sim/events.py</span></h2>
+
+<p>An <strong>Event is the unit of asynchronous activity</strong>: everything durative in the world —
+chat latency, meetings, ticket work, being out of office — is one <code>Event</code> object with a uniform
+lifecycle and exactly <strong>one row in the <code>event</code> table</strong> (completion is a status flip
+on that row, not a second record). The engine rehydrates the right subclass from a DB row via
+<code>EVENT_REGISTRY</code>.</p>
+
+<figure>
+<svg viewBox="0 0 760 148" role="img" aria-label="Event lifecycle">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+  <rect class="bx-drv" x="40" y="34" width="140" height="44"/>
+  <text class="t" x="110" y="61" text-anchor="middle">pending</text>
+  <rect class="bx-sim" x="310" y="34" width="140" height="44"/>
+  <text class="t" x="380" y="61" text-anchor="middle">active</text>
+  <rect class="bx-npc" x="580" y="34" width="140" height="44"/>
+  <text class="t" x="650" y="61" text-anchor="middle">done</text>
+  <line class="edge" x1="180" y1="56" x2="308" y2="56" marker-end="url(#arr2)"/>
+  <text class="el" x="244" y="30" text-anchor="middle">start(engine) at start_tick</text>
+  <text class="el" x="244" y="48" text-anchor="middle">runs _on_start</text>
+  <line class="edge" x1="450" y1="56" x2="578" y2="56" marker-end="url(#arr2)"/>
+  <text class="el" x="514" y="30" text-anchor="middle">done(engine) after duration</text>
+  <text class="el" x="514" y="48" text-anchor="middle">runs _on_done</text>
+  <rect class="bx-out" x="310" y="102" width="140" height="32"/>
+  <text class="s" x="380" y="122" text-anchor="middle">cancelled</text>
+  <text class="el" x="745" y="122" text-anchor="end">duration == 0 ⇒ starts and finishes in the same tick</text>
+</svg>
+<figcaption>Uniform API: <code>should_start(now)</code> · <code>remaining(now)</code> ·
+<code>is_finished(now)</code>; <code>start()</code>/<code>done()</code> persist the flip and append to
+<code>event_log</code>.</figcaption>
+</figure>
+
+<h3>The complete set of event types</h3>
+<p>Only these seven types exist — <em>nothing else may be scheduled</em>
+(<code>EventType</code> enum → concrete class via <code>EVENT_REGISTRY</code>):</p>
+
+<table>
+  <thead><tr>
+    <th>EventType</th><th>Class</th><th>Duration</th><th>Calendar priority</th>
+    <th><code>_on_start</code></th><th><code>_on_done</code></th>
+  </tr></thead>
+  <tbody>
+    <tr><td><code>email.send</code></td><td><code>EmailSendEvent</code></td>
+        <td>instant (duration models delivery latency)</td><td>— (non-occupying)</td>
+        <td>no-op (in flight)</td>
+        <td><code>store.add_email</code> — lands in recipients' inboxes</td></tr>
+    <tr><td><code>email.read</code></td><td><code>EmailReadEvent</code></td>
+        <td>instant</td><td>—</td>
+        <td>no-op</td><td>no-op — the read itself is the recorded outcome (NPC awareness)</td></tr>
+    <tr><td><code>slack.send</code></td><td><code>SlackSendEvent</code></td>
+        <td>instant (typing/send latency)</td><td>—</td>
+        <td>no-op</td><td><code>store.add_message</code> — message becomes visible in the channel</td></tr>
+    <tr><td><code>slack.read</code></td><td><code>SlackReadEvent</code></td>
+        <td>instant</td><td>—</td>
+        <td>no-op</td><td>no-op — awareness only</td></tr>
+    <tr><td><code>jira_ticket</code></td><td><code>JiraTicketEvent</code></td>
+        <td>durative — the issue's <code>estimate_minutes</code></td><td>20</td>
+        <td>transition <code>todo | blocked → in_progress</code></td>
+        <td>log remaining work, then → <code>done</code> (if <code>auto_close</code>, the default)
+            or → <code>in_review</code> (a <em>when_asked</em> persona parks it)</td></tr>
+    <tr><td><code>meeting</code></td><td><code>MeetingEvent</code><br>
+        <span class="s">kind ∈ standup | adhoc | 1on1 | team</span></td>
+        <td>durative</td><td>100</td>
+        <td><code>store.add_meeting</code> — the meeting begins</td>
+        <td><code>store.add_transcript</code> — transcript becomes available at the end tick</td></tr>
+    <tr><td><code>ooo</code></td><td><code>OOOEvent</code></td>
+        <td>durative (hours → days)</td><td>200</td>
+        <td>no-op</td><td>no-op — the <em>effect</em> is the calendar occupancy itself</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Who schedules events?</strong> NPC behavior hooks (ticket work + status messages), scenario
+seeding (meetings, boards), the procedural generator's builders (one builder per event type), reactions
+(follow-up work), and the agent indirectly (its Slack message triggers reactions that schedule).</p>
+
+<h3>Scheduler &amp; calendar (contention)</h3>
+<div class="cols">
+  <div class="card">
+    <h4>Scheduler — <span class="path">pm/sim/scheduler.py</span></h4>
+    <ul>
+      <li>The <code>event</code> table <em>is</em> the queue — no parallel in-memory heap.</li>
+      <li><code>schedule(event)</code> rejects past start ticks, stamps a monotonic <code>seq</code>
+          (resumed from <code>max_event_seq()+1</code>) and <code>created_tick</code>, persists, then calls
+          <code>calendar.reserve</code>.</li>
+      <li>Queue order is <code>(start_tick, seq)</code> — deterministic across replays.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Calendar — <span class="path">pm/sim/calendar.py</span></h4>
+    <ul>
+      <li>Durative events occupy their people in the <code>occupancy</code> table; a meeting occupies all
+          attendees + organizer, work occupies its single actor.</li>
+      <li><strong>Yield:</strong> the incoming event's start is pushed past any overlapping block of
+          ≥ priority.</li>
+      <li><strong>Bump:</strong> lower-priority overlaps lose — an <em>active</em> one pauses and resumes
+          (<code>duration += incoming.duration</code>); a <em>pending</em> one moves after the window and
+          re-reserves recursively.</li>
+      <li>All resolution happens at reserve time — the engine has no runtime preemption.
+          Instantaneous events reserve nothing and are never blocked.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="simwork">5. Sim work: the sync / async boundary <span class="path">pm/sim/engine.py</span></h2>
+
+<p>The engine owns time progression, and this is the deliverable's central systems choice:
+agent actions are <em>synchronous</em>, the world is <em>asynchronous</em> — but both move the same
+single clock. No background threads exist anywhere.</p>
+
+<div class="cols">
+  <div class="card">
+    <h4>Synchronous — <code>perform_action(actor, cost, effect)</code></h4>
+    <p>The contract every agent/Jira mutation routes through:</p>
+    <ul>
+      <li>Run <code>effect()</code> at the <em>current</em> tick — no sim-time passes while it runs.</li>
+      <li>Log an <code>action</code> entry for the actor.</li>
+      <li><code>advance(cost)</code> — then return the events that transitioned during the advance,
+          so the caller observes what the world did in response.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Asynchronous — <code>step()</code></h4>
+    <p>Advance exactly one simulated minute:</p>
+    <ul>
+      <li><code>start()</code> every pending event whose <code>start_tick</code> has arrived,</li>
+      <li>then <code>done()</code> every active event whose duration has elapsed
+          (freeing its <code>occupancy</code> blocks),</li>
+      <li>then <code>activities.tick(now)</code> for the durative-activity system.</li>
+    </ul>
+    <p><code>advance(minutes)</code> just loops <code>step()</code>; an instantaneous event starts
+    <em>and</em> finishes within one tick.</p>
+  </div>
+</div>
+
+<h3>The week loop — <span class="path">pm/sim/simulation.py</span></h3>
+<pre><code>while not sim.is_over():          # now &lt; WEEK_END_TICK (2400)
+    on_tick(sim)                  # hooks read state + schedule(); must not advance time
+    sim.step()                    # engine advances one minute
+# terminal "week.end" log → RunSummary(final_tick, events_fired)</code></pre>
+<p><code>Simulation</code> adds week guardrails on top of the engine: events that would start at or after
+Fri 17:00 are dropped (logged as <code>event.dropped_past_week</code>), and <code>perform_action</code>
+costs are clamped to the remaining week.</p>
+
+<!-- ================================================================== -->
+<h2 id="activities">6. Activities <span class="path">pm/sim/activity.py</span></h2>
+
+<p>An <strong>Activity</strong> is a second, self-contained durative-work system that coexists with Events.
+Where an Event is a scheduled world occurrence (a calendar item with a fixed window), an Activity is a
+thing one or more NPCs are <em>doing</em> right now — it burns down minute by minute, can be interrupted
+by something more important, and resumes with its remaining time frozen. It owns its own
+<code>activity</code> table (created idempotently by <code>ActivityManager</code>) and never references a
+Task or Jira issue; effects are kind-specific side effects on start/done.</p>
+
+<figure>
+<svg viewBox="0 0 760 178" role="img" aria-label="Activity state machine">
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+  <rect class="bx-drv" x="40" y="46" width="150" height="44"/>
+  <text class="t" x="115" y="73" text-anchor="middle">backlogged</text>
+  <rect class="bx-sim" x="300" y="46" width="150" height="44"/>
+  <text class="t" x="375" y="73" text-anchor="middle">started</text>
+  <rect class="bx-npc" x="560" y="46" width="150" height="44"/>
+  <text class="t" x="635" y="73" text-anchor="middle">done</text>
+  <rect class="bx-drv" x="300" y="128" width="150" height="38"/>
+  <text class="s" x="375" y="151" text-anchor="middle">interrupted</text>
+  <line class="edge" x1="190" y1="68" x2="298" y2="68" marker-end="url(#arr3)"/>
+  <text class="el" x="244" y="42" text-anchor="middle">dispatch (by priority)</text>
+  <line class="edge" x1="450" y1="68" x2="558" y2="68" marker-end="url(#arr3)"/>
+  <text class="el" x="504" y="42" text-anchor="middle">remaining == 0</text>
+  <line class="edge" x1="345" y1="90" x2="345" y2="126" marker-end="url(#arr3)"/>
+  <text class="el" x="210" y="112">preempted by higher priority</text>
+  <line class="edge" x1="405" y1="126" x2="405" y2="90" marker-end="url(#arr3)"/>
+  <text class="el" x="418" y="112">resume (remaining frozen)</text>
+  <text class="el" x="560" y="151">(+ cancelled)</text>
+</svg>
+<figcaption><code>ActivityManager.tick(now)</code> — called each <code>Engine.step()</code> — burns down
+every started activity, completes those hitting zero, then re-dispatches.</figcaption>
+</figure>
+
+<table>
+  <thead><tr><th>Kind</th><th>Priority</th><th>on_start</th><th>on_done</th></tr></thead>
+  <tbody>
+    <tr><td><code>meeting</code></td><td>100</td><td><code>add_meeting</code></td><td><code>add_transcript</code> (if a transcript is attached)</td></tr>
+    <tr><td><code>jira_work</code></td><td>40</td><td>—</td><td>log <code>ticket.worked</code> (records that work happened; does not track an issue)</td></tr>
+    <tr><td><code>write_doc</code></td><td>35</td><td>—</td><td><code>add_document</code></td></tr>
+    <tr><td><code>review_doc</code></td><td>30</td><td>—</td><td>log <code>doc.reviewed</code></td></tr>
+    <tr><td><code>slack_send</code></td><td>20</td><td>—</td><td><code>add_message</code></td></tr>
+    <tr><td><code>coffee_break</code></td><td>5</td><td>—</td><td>—</td></tr>
+    <tr><td><code>watch_worldcup</code></td><td>5</td><td>—</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Manager rules</strong> (<code>ActivityManager</code>): each NPC is in at most one
+<code>started</code> activity across all attenders; dispatch runs highest-priority first; an incoming
+activity <em>waits</em> if any attender is already in an equal-or-higher-priority activity, and
+<em>interrupts</em> strictly-lower ones (every activity is interruptible). Priority is the only per-kind
+knob besides the two effect hooks — adding a kind is one registration in <code>ACTIVITY_KINDS</code>.</p>
+
+<div class="note">In practice the scenario catalog is driven by the <em>Event</em> system
+(scheduler + calendar); the Activity system is wired into every <code>Engine.step()</code> but stays
+idle until something calls <code>activities.request(...)</code>.</div>
+
+<!-- ================================================================== -->
+<h2 id="npcs">7. NPCs &amp; personas <span class="path">pm/npc/</span></h2>
+
+<h3>The cast — <span class="path">pm/npc/cast.py</span></h3>
+<p>A <code>CastMember</code> carries identity (<code>id, name, role, discipline</code>), a
+<code>kind</code>, goals/priorities/tone, response-delay bounds, and a <code>Persona</code>.
+<code>seed_cast</code> writes everyone as <code>person</code> rows, folding all of it into the
+<code>Person.persona</code> JSON so behavior and the evaluator can read it back from SQLite.</p>
+
+<table>
+  <thead><tr><th>Kind</th><th>Who</th><th><code>works</code></th><th>Role in the sim</th></tr></thead>
+  <tbody>
+    <tr><td><strong>member</strong></td>
+        <td>alice (backend) · bob (ml) · clare (frontend) · david (backend) · elieen (design)</td>
+        <td>yes</td><td>Implementers — pick up and work board issues per their persona.</td></tr>
+    <tr><td><strong>stakeholder</strong></td>
+        <td>erin (EM) · vera (VP Product) · xavier (CTO)</td>
+        <td>no</td><td>Create / assign / apply pressure.</td></tr>
+    <tr><td><strong>agent</strong></td>
+        <td><code>pm</code></td>
+        <td>no</td><td>The agent-under-test — unblocks, prioritizes, communicates.</td></tr>
+  </tbody>
+</table>
+
+<h3>Personas — <span class="path">pm/npc/persona.py</span></h3>
+<p>A <code>Persona</code> is a small frozen set of trait flags describing <em>how a coworker works the
+board</em>, stored under the <code>"behavior"</code> key of the persona JSON (default: PERFECT).
+Scenarios swap them per member with <code>with_personas(cast, …)</code>.</p>
+
+<table>
+  <thead><tr><th>Trait</th><th>PERFECT</th><th>HEADS_DOWN</th><th>FREE_SPIRIT</th></tr></thead>
+  <tbody>
+    <tr><td><code>work_style</code><br><span class="s">how the next ticket is chosen</span></td>
+        <td><code>by_priority</code> — highest-priority <em>ready</em> ticket</td>
+        <td><code>by_priority</code></td>
+        <td><code>freestyle</code> — seeded-random pick from everything on their plate,
+            <strong>blocked tickets included</strong></td></tr>
+    <tr><td><code>board_updates</code><br><span class="s">when finished work is closed</span></td>
+        <td><code>on_finish</code> — marks <code>done</code> as it completes</td>
+        <td><code>when_asked</code> — parks work in <code>in_review</code> until a standup ends or a
+            Slack message names them</td>
+        <td><code>on_finish</code></td></tr>
+    <tr><td><code>announces_progress</code><br><span class="s">Slack status on pickup</span></td>
+        <td><code>true</code> — posts a status update as it picks up work</td>
+        <td><code>false</code></td>
+        <td><code>false</code></td></tr>
+  </tbody>
+</table>
+
+<h3>How traits become behavior</h3>
+<div class="cols">
+  <div class="card">
+    <h4>Pickup hooks — <span class="path">pm/npc/behavior.py</span></h4>
+    <p>Per-tick <code>on_tick</code> hooks that decide <em>which work to enqueue</em>:</p>
+    <ul>
+      <li><code>assignee_pickup_hook</code> — each person works their next ready <em>assigned</em> issue
+          (what <code>runner.drive</code> uses); <code>dev_pickup_hook</code> — idle devs take the next
+          ready issue in their discipline.</li>
+      <li><code>_next_issue</code> — an issue at <strong>priority ≤ 0</strong> (a PM “pick up” directive)
+          overrides everything; else freestyle picks seeded-random
+          (<code>Random(f"{seed}:{pid}:{now}")</code>), else by priority.</li>
+      <li><code>_dispatch_work</code> — schedules a <code>JiraTicketEvent</code>
+          (duration = <code>estimate_minutes</code>, <code>auto_close</code> from the persona) plus an
+          optional <code>SlackSendEvent</code> status if <code>announces_progress</code>.</li>
+      <li><code>compose(*hooks)</code> — combines several hooks into one <code>on_tick</code>.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Reactions — <span class="path">pm/npc/reactions.py</span></h4>
+    <p>One handler per <code>EventType</code>, fired when an event <em>completes</em>
+    (<code>react_on_tick</code> dispatches for everything in <code>events_done_at(now)</code>):</p>
+    <ul>
+      <li><code>JIRA_TICKET</code> done → the assignee picks up their next ready ticket
+          (carrying their board-update policy) — work chains.</li>
+      <li><code>MEETING</code> done → a <em>standup</em> prompts attendees to close their
+          <code>in_review</code> work.</li>
+      <li><code>SLACK_SEND</code> done → a message <em>naming a person</em> closes their
+          <code>in_review</code> work; a “pick up <code>KEY</code>” directive bumps that issue to
+          priority 0.</li>
+      <li>Email/Slack reads and OOO are documented no-op placeholders.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="agent">8. The PM agent ↔ the sim <span class="path">pm/agent/</span></h2>
+
+<p>The PM cannot touch the board directly. Its <strong>only mutation is Slack</strong> — and the world
+already reacts to Slack (<code>reactions._on_slack_send</code>), giving the agent exactly two levers:</p>
+<ul>
+  <li><strong>Close</strong>: a message naming a person closes their finished-but-unclosed
+      (<code>in_review</code>) work — which can unblock a teammate's dependent ticket.</li>
+  <li><strong>Direct</strong>: “please pick up <code>KEY</code> next” bumps that issue to priority 0 —
+      the level even a <em>freestyle</em> persona works first.</li>
+</ul>
+
+<h3>Tool surface — <span class="path">pm/agent/tools.py</span> → MCP <span class="path">pm/agent/mcp_server.py</span></h3>
+<table>
+  <thead><tr><th>Tool</th><th>Kind</th><th>Sim-time cost</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>send_slack(channel_id, body)</code></td><td>mutation</td>
+        <td><code>send_cost</code> (default 1 tick)</td>
+        <td>Routes through <code>Engine.perform_action</code>: message lands at the current tick, the
+            action is logged, time advances — firing due background events. Errors surface as
+            <code>ToolError</code>.</td></tr>
+    <tr><td><code>read_slack(channel_id)</code></td><td>read</td><td>0</td>
+        <td>Channel messages, oldest first.</td></tr>
+    <tr><td><code>read_jira_board(project_id)</code></td><td>read</td><td>0</td>
+        <td>All issues + <code>counts_by_status</code> dashboard.</td></tr>
+    <tr><td><code>read_calendar(person_id?)</code></td><td>read</td><td>0</td>
+        <td>Meetings a person attends (defaults to the agent).</td></tr>
+    <tr><td><code>read_transcripts()</code></td><td>read</td><td>0</td>
+        <td>Meeting transcripts available so far — a transcript appears when its meeting ends
+            (<code>available_tick</code> gating).</td></tr>
+  </tbody>
+</table>
+
+<p>The FastMCP server <code>"pm-agent"</code> exposes exactly these five as <code>@mcp.tool()</code>
+functions (name = function, description = docstring, schema = typed signature) over streamable-http
+(<code>PM_MCP_HOST</code>/<code>PM_MCP_PORT</code>, default <code>127.0.0.1:8765</code>). Its
+<code>lifespan</code> binds <code>AgentTools</code> to the run named by <code>PM_RUN_ID</code>
+(root <code>PM_RUNS_ROOT</code>).</p>
+
+<figure>
+<svg viewBox="0 0 920 375" role="img" aria-label="PM agent interaction sequence">
+  <defs>
+    <marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+  <!-- lifeline headers -->
+  <rect class="bx-agent" x="20"  y="10" width="140" height="36"/>
+  <text class="t" x="90"  y="32" text-anchor="middle">LLM PM (LLMAgent)</text>
+  <rect class="bx-agent" x="200" y="10" width="140" height="36"/>
+  <text class="t" x="270" y="32" text-anchor="middle">MCP server</text>
+  <rect class="bx-agent" x="380" y="10" width="140" height="36"/>
+  <text class="t" x="450" y="32" text-anchor="middle">AgentTools</text>
+  <rect class="bx-sim" x="560" y="10" width="140" height="36"/>
+  <text class="t" x="630" y="32" text-anchor="middle">Engine</text>
+  <rect class="bx-db" x="740" y="10" width="160" height="36"/>
+  <text class="t" x="820" y="32" text-anchor="middle">World (Store + NPCs)</text>
+  <!-- lifelines -->
+  <line class="life" x1="90"  y1="46" x2="90"  y2="360"/>
+  <line class="life" x1="270" y1="46" x2="270" y2="360"/>
+  <line class="life" x1="450" y1="46" x2="450" y2="360"/>
+  <line class="life" x1="630" y1="46" x2="630" y2="360"/>
+  <line class="life" x1="820" y1="46" x2="820" y2="360"/>
+  <!-- read round-trip -->
+  <line class="edge" x1="90" y1="78" x2="268" y2="78" marker-end="url(#arr4)"/>
+  <text class="el" x="98" y="72">call_tool read_jira_board</text>
+  <line class="edge" x1="270" y1="102" x2="448" y2="102" marker-end="url(#arr4)"/>
+  <line class="edge" x1="450" y1="126" x2="818" y2="126" marker-end="url(#arr4)"/>
+  <text class="el" x="560" y="120">Store query — 0 sim-time</text>
+  <line class="edge dash" x1="818" y1="150" x2="92" y2="150" marker-end="url(#arr4)"/>
+  <text class="el" x="360" y="166">issues + counts_by_status</text>
+  <!-- send round-trip -->
+  <line class="edge" x1="90" y1="196" x2="268" y2="196" marker-end="url(#arr4)"/>
+  <text class="el" x="98" y="190">call_tool send_slack(channel, body)</text>
+  <line class="edge" x1="270" y1="220" x2="448" y2="220" marker-end="url(#arr4)"/>
+  <line class="edge" x1="450" y1="244" x2="628" y2="244" marker-end="url(#arr4)"/>
+  <text class="el" x="458" y="238">perform_action(cost=1, effect)</text>
+  <line class="edge" x1="630" y1="268" x2="818" y2="268" marker-end="url(#arr4)"/>
+  <text class="el" x="648" y="262">effect: message row @ now</text>
+  <path class="edge" d="M 630 292 C 686 292 686 316 632 316" marker-end="url(#arr4)"/>
+  <text class="el" x="616" y="308" text-anchor="end">advance(1) → step(): due events fire</text>
+  <line class="edge dash" x1="820" y1="292" x2="820" y2="330"/>
+  <text class="el" x="908" y="316" text-anchor="end">reactions: close in_review ·</text>
+  <text class="el" x="908" y="330" text-anchor="end">“pick up KEY” → priority 0</text>
+  <line class="edge dash" x1="448" y1="352" x2="92" y2="352" marker-end="url(#arr4)"/>
+  <text class="el" x="200" y="346">message dict (via MCP)</text>
+</svg>
+<figcaption>Reads are free queries; <code>send_slack</code> is the one costed mutation, and the world's
+Slack reactions turn it into board effects.</figcaption>
+</figure>
+
+<h3>Two PM variants, one set of levers</h3>
+<table>
+  <thead><tr><th>Variant</th><th>Where</th><th>Cadence</th><th>Effect on the board</th></tr></thead>
+  <tbody>
+    <tr><td><strong>LLM PM</strong></td>
+        <td><code>LLMAgent</code> (<span class="path">agent/openrouter_agent.py</span>) — a
+            model ⇄ tool-call loop (max 12 steps) over <code>McpBackend</code> (live MCP session) or
+            <code>InProcessBackend</code> (direct <code>AgentTools</code>, for tests); OpenRouter models,
+            <code>pm-agent</code> CLI.</td>
+        <td>its own review cadence</td>
+        <td>Full lever access via <code>send_slack</code>.</td></tr>
+    <tr><td><strong>Visibility-only PM</strong></td>
+        <td><code>agent_review_hook</code> in
+            <span class="path">scenarios/test_single_engineer_with_agent.py</span> — uses
+            <code>AgentTools.read_jira_board</code> + a <code>SlackSendEvent</code></td>
+        <td>every 240 ticks</td>
+        <td>Posts board highlights only — never reorders picks (a contrast case).</td></tr>
+  </tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="persistence">9. Persistence &amp; scenarios</h2>
+
+<h3>Store &amp; schema — <span class="path">pm/db/</span></h3>
+<p><code>Database</code> is the only module touching sqlite3 (Row factory, foreign keys ON, WAL,
+online <code>backup_to</code>). <code>Store</code> is the single typed interface on top — no raw SQL
+leaks past it. Schema (version 2) highlights:</p>
+<ul>
+  <li><strong>Sim machinery</strong> — <code>meta</code> (KV: <code>current_tick</code>, seed, scenario),
+      <code>event</code> (the durative queue itself, indexed on <code>(status, start_tick, seq)</code>),
+      <code>event_log</code> (append-only trace), <code>occupancy</code> (per-person calendar blocks).</li>
+  <li><strong>World entities</strong> — <code>person</code> (persona JSON, delay bounds),
+      <code>project</code>, <code>channel</code>/<code>message</code>, email thread tables,
+      <code>meeting</code>/<code>meeting_attendee</code>,
+      <code>transcript</code> (<code>available_tick</code> gates discoverability), <code>document</code>.</li>
+  <li><strong>Additive tables</strong> — <code>issue</code>/<code>issue_dependency</code> are created at
+      runtime by <code>JiraRepository</code>, and <code>activity</code> by <code>ActivityManager</code>,
+      without bumping the schema version.</li>
+  <li><strong>Two DBs per run</strong> — <code>world.db</code> (live) and <code>seed.db</code>
+      (immutable initial snapshot, used for reset and grading diffs by
+      <span class="path">pm/eval/report.py</span>).</li>
+</ul>
+
+<h3>Scenarios — <span class="path">pm/scenarios/</span></h3>
+<p>A scenario module exposes <code>build(run_id, seed, root, force, member_persona) → Env</code> plus
+<code>MEMBERS</code>, <code>PROJECT_ID</code>, and optionally <code>agent_review_hook(env)</code>.
+The shared runner (<span class="path">scenarios/runner.py</span>) composes the hooks —
+<strong>the PM hook runs first</strong>, so a same-tick close/directive lands before the person it
+steers picks their next ticket — runs the week, then fires one final PM close-out for work finishing
+on the last tick.</p>
+
+<table>
+  <thead><tr><th>Scenario family</th><th>Setup</th><th>What it demonstrates</th></tr></thead>
+  <tbody>
+    <tr><td><code>test_single_engineer*</code></td>
+        <td>alice, a 60-hour board in a 40-hour week (7 launch blockers + 5 backlog stories) — a triage game where exactly 8 tasks can ship</td>
+        <td>PERFECT ships the blockers; FREE_SPIRIT puts them at risk; <code>_with_agent</code>
+            shows visibility-only posting steers nothing.</td></tr>
+    <tr><td><code>test_two_engineers*</code></td>
+        <td>two engineers with cross-dependencies (plus a <code>_mixed</code> personas
+            variant)</td>
+        <td>Closing in_review work unblocks a partner — the PM's close lever matters.</td></tr>
+    <tr><td><code>tight_week*</code></td>
+        <td>6-person cast, 66 pre-assigned tasks tiling each calendar between 11 pre-booked meetings;
+            dependency + priority order finishes exactly at Fri 17:00</td>
+        <td>Zero-slack schedule; standups carry the authored transcripts from
+            <span class="path">pm/transcript/</span> (a customer “live caption translation” thread only
+            the PM can act on, surfaced via <code>read_transcripts</code>).</td></tr>
+  </tbody>
+</table>
+
+<p>A procedural alternative lives in <span class="path">scenarios/generator.py</span> +
+<span class="path">builders/</span>: each <code>EventBuilder</code> owns exactly one <code>EventType</code>
+and fabricates unscheduled events at a chosen intensity
+(<code>Level ∈ few | frequent | aggressive</code>), with the OOO builder running first so its occupancy
+is reserved before anything else is placed.</p>
+
+<footer>
+  Generated 2026-07-16 from the source at commit-time state — anchors:
+  <span class="path">pm/sim/{clock,events,engine,scheduler,calendar,activity,simulation}.py</span> ·
+  <span class="path">pm/npc/{cast,persona,behavior,reactions}.py</span> ·
+  <span class="path">pm/agent/{tools,mcp_server,openrouter_agent}.py</span> ·
+  <span class="path">pm/db/{database,store,schema.sql}</span> ·
+  <span class="path">pm/scenarios/runner.py</span>
+</footer>
+
+</main>
+</body>
+</html>

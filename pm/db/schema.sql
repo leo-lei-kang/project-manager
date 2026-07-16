@@ -163,6 +163,20 @@ CREATE TABLE IF NOT EXISTS transcript (
     available_tick INTEGER NOT NULL
 );
 
+-- Informal tasks — a mirror of Jira tickets that lives only in meeting notes.
+-- Rows are created/updated when a meeting ends (from the meeting's payload), so
+-- work can exist with a DRI and status while the Jira board knows nothing of it.
+CREATE TABLE IF NOT EXISTS task (
+    id                TEXT PRIMARY KEY,
+    title             TEXT    NOT NULL,
+    dri_id            TEXT    REFERENCES person(id) ON DELETE SET NULL,
+    status            TEXT    NOT NULL DEFAULT 'todo'
+                      CHECK (status IN ('todo', 'in_progress', 'done')),
+    source_meeting_id TEXT,
+    created_tick      INTEGER NOT NULL DEFAULT 0,
+    updated_tick      INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS document (
     id           TEXT PRIMARY KEY,
     title        TEXT    NOT NULL,

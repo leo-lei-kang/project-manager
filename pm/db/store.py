@@ -24,6 +24,7 @@ from pm.world.models import (
     Message,
     Person,
     Project,
+    Task,
     Transcript,
 )
 
@@ -39,6 +40,7 @@ _ENTITY_TABLES = (
     "email",
     "meeting",
     "transcript",
+    "task",
     "document",
 )
 
@@ -464,7 +466,59 @@ class Store:
             ),
         )
 
+    def list_transcripts(self, available_by: int) -> list[Transcript]:
+        """Transcripts available at or before ``available_by`` (a meeting's end tick)."""
+        rows = self.db.query_all(
+            "SELECT * FROM transcript WHERE available_tick <= ? "
+            "ORDER BY available_tick, id",
+            (available_by,),
+        )
+        return [
+            Transcript(
+                id=r["id"],
+                meeting_id=r["meeting_id"],
+                body=r["body"],
+                available_tick=r["available_tick"],
+            )
+            for r in rows
+        ]
+
     # -- docs ----------------------------------------------------------------
+
+    # -- informal tasks (meeting-notes mirror of Jira tickets) ----------------
+
+    def upsert_task(self, task: Task) -> None:
+        """Create or update an informal task (written when a meeting ends)."""
+        self.db.execute(
+            "INSERT OR REPLACE INTO task (id, title, dri_id, status, "
+            "source_meeting_id, created_tick, updated_tick) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                task.id,
+                task.title,
+                task.dri_id,
+                task.status,
+                task.source_meeting_id,
+                task.created_tick,
+                task.updated_tick,
+            ),
+        )
+
+    def list_tasks(self) -> list[Task]:
+        """All informal tasks, in id order."""
+        rows = self.db.query_all("SELECT * FROM task ORDER BY id")
+        return [
+            Task(
+                id=r["id"],
+                title=r["title"],
+                dri_id=r["dri_id"],
+                status=r["status"],
+                source_meeting_id=r["source_meeting_id"],
+                created_tick=r["created_tick"],
+                updated_tick=r["updated_tick"],
+            )
+            for r in rows
+        ]
 
     def add_document(self, document: Document) -> None:
         """Create or update a document (used by the write_doc activity)."""
