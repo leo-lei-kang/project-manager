@@ -1,0 +1,66 @@
+[project]
+name = "pm-sim"
+version = "0.1.0"
+description = "Project Manager Simulation Environment — a deterministic, single-node simulation of a PM's first week."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+# Serve the agent's tools over MCP (`pm-mcp`); the core sim needs no LLM/API key.
+mcp = ["mcp>=1.24"]
+# Drive the PM agent over MCP with an OpenRouter-hosted model (`pm-agent`).
+agent = ["mcp>=1.24", "openai>=1.0", "python-dotenv>=1.0"]
+
+[project.scripts]
+pm = "pm.cli:app"
+pm-mcp = "pm.agent.mcp_server:main"
+pm-agent = "pm.agent.openrouter_agent:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "black>=24.0",
+    "isort>=5.13",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+files = ["pm"]
+
+[[tool.mypy.overrides]]
+module = ["mcp.*", "openai.*", "dotenv.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+src = ["pm", "tests"]

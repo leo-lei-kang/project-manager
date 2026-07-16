@@ -1,0 +1,23 @@
+# Simulation run artifacts (per-run SQLite databases live here)
+runs/
+/calendars.html
+/jira_tasks.html
+
+# Claude Code local session state
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# SQLite side files
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets / local config (agent uses OPENROUTER_API_KEY)
+.env

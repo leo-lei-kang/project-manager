@@ -1,0 +1,189 @@
+"""Persona-driven NPC behavior: completion timing, selection order, dependency
+awareness, and blocker-first prioritization.
+
+Each test seeds a small cast with a specific :class:`~pm.npc.persona.Persona`,
+drives a run (or a single hook tick), and asserts on the board state read back
+through :class:`~pm.jira.api.JiraApi`. Determinism is exact: tick 0 is Monday
+09:00 and the seeded RNG (meta ``seed`` == 42) reproduces the random pick.
+"""
+
+from __future__ import annotations
+
+import random
+
+import pytest
+
+from pm.env import Env
+from pm.jira.api import JiraApi
+from pm.jira.repository import JiraRepository
+from pm.npc.behavior import assignee_pickup_hook, compose, dev_pickup_hook
+from pm.npc.cast import CastMember, seed_cast
+from pm.npc.persona import (
+    CHAOTIC,
+    DEFAULT,
+    DEPENDENCY_BLIND,
+    FORGETFUL_CLOSER,
+    PERFECT,
+    Persona,
+    from_person,
+)
+from pm.npc.reactions import close_reactions_on_tick
+from pm.sim.events import MeetingEvent, SlackSendEvent
+from pm.sim.simulation import Simulation
+from pm.world.models import Project
+
+
+@pytest.fixture
+def env(tmp_path) -> Env:
+    e = Env.make(run_id="persona", root=tmp_path)  # default seed 42
+    e.store.add_project(Project(id="checkout", name="Checkout"))
+    yield e
+    e.close()
+
+
+def _api(env: Env) -> JiraApi:
+    repo = JiraRepository(env.store)
+    repo.ensure_schema()
+    return JiraApi(repo, env.engine)
+
+
+def _member(pid: str, persona: Persona = DEFAULT, discipline: str = "backend") -> CastMember:
+    return CastMember(pid, pid.capitalize(), "Engineer", discipline, "member", True, persona=persona)
+
+
+def test_persona_round_trips_through_seed_cast(env: Env) -> None:
+    seed_cast(env.store, cast=[_member("alice", FORGETFUL_CLOSER), _member("dan", DEFAULT)])
+    assert from_person(env.store.get_person("alice")) == FORGETFUL_CLOSER
+    assert from_person(env.store.get_person("dan")) == DEFAULT
+    # unknown / unseeded person falls back to the standard behavior
+    assert from_person(env.store.get_person("nobody")) == DEFAULT
+
+
+def test_on_reminder_holds_finished_work_in_review(env: Env) -> None:
+    # Item 1: without a standup or a Slack ask, finished work is never marked done.
+    seed_cast(env.store, cast=[_member("alice", FORGETFUL_CLOSER)])
+    api = _api(env)
+    task = api.create_issue("checkout", "task", "API", estimate_minutes=5,
+                            assignee="alice", actor="alice")
+
+    Simulation(env).run(on_tick=assignee_pickup_hook(api, ["alice"], "checkout"))
+
+    assert api.get_issue(task.id).status == "in_review"  # done work, not closed
+
+
+def test_standup_closes_in_review_work(env: Env) -> None:
+    # Item 1: a completed standup prompts its attendees to close pending work.
+    seed_cast(env.store, cast=[_member("alice", FORGETFUL_CLOSER)])
+    api = _api(env)
+    task = api.create_issue("checkout", "task", "API", estimate_minutes=5,
+                            assignee="alice", actor="alice")
+    env.engine.schedule(MeetingEvent(
+        owner_id="alice", start_tick=20, duration=5,
+        payload={"meeting_id": "m1", "kind": "standup", "attendees": ["alice"], "title": "Standup"},
+    ))
+
+    Simulation(env).run(on_tick=compose(
+        assignee_pickup_hook(api, ["alice"], "checkout"), close_reactions_on_tick,
+    ))
+
+    assert api.get_issue(task.id).status == "done"
+
+
+def test_slack_mention_closes_in_review_work(env: Env) -> None:
+    # Item 1: a Slack message naming the person closes their pending work; an
+    # unrelated message does not.
+    seed_cast(env.store, cast=[_member("alice", FORGETFUL_CLOSER)])
+    api = _api(env)
+    env.store.db.execute("INSERT INTO channel (id, name, kind) VALUES ('eng','eng','channel')")
+    named = api.create_issue("checkout", "task", "API", estimate_minutes=5,
+                             assignee="alice", actor="alice")
+    env.engine.schedule(SlackSendEvent(
+        owner_id="alice", start_tick=20,
+        payload={"message_id": "m0", "channel_id": "eng", "body": "unrelated status ping"},
+    ))
+    env.engine.schedule(SlackSendEvent(
+        owner_id="alice", start_tick=40,
+        payload={"message_id": "m1", "channel_id": "eng", "body": "hey alice can you close it?"},
+    ))
+
+    hook = compose(assignee_pickup_hook(api, ["alice"], "checkout"), close_reactions_on_tick)
+    sim = Simulation(env)
+    # Drive tick-by-tick (mirroring Simulation.run) so we can observe the state
+    # after the unrelated ping but before the mention.
+    while sim.clock.now() < 30:
+        hook(sim)
+        sim.step()
+    assert api.get_issue(named.id).status == "in_review"  # unrelated ping didn't close it
+    while not sim.is_over():
+        hook(sim)
+        sim.step()
+    assert api.get_issue(named.id).status == "done"  # the mention closed it
+
+
+def test_random_selection_is_seeded_and_ignores_priority(env: Env) -> None:
+    # Items 2/3: selection is a seeded random pick over the whole ready pool, not
+    # the priority-ordered head. Deterministic given the run seed + person + tick.
+    seed_cast(env.store, cast=[_member("alice", CHAOTIC)])
+    api = _api(env)
+    ids = [
+        api.create_issue("checkout", "task", title, component="backend",
+                         estimate_minutes=5, priority=prio, actor="alice").id
+        for title, prio in [("A", 3), ("B", 2), ("C", 1)]
+    ]
+
+    sim = Simulation(env)
+    now = sim.clock.now()
+    dev_pickup_hook(api, [_member("alice", CHAOTIC)], "checkout")(sim)
+
+    picked = api.search(assignee="alice")[0].id
+    expected = random.Random(f"42:alice:{now}").choice(sorted(ids))
+    assert picked == expected  # reproducible seeded choice, independent of priority
+
+
+def test_default_selection_takes_highest_priority(env: Env) -> None:
+    # Contrast to the random persona: the default persona takes priority order.
+    seed_cast(env.store, cast=[_member("alice", DEFAULT)])
+    api = _api(env)
+    low = api.create_issue("checkout", "task", "A", component="backend",
+                           estimate_minutes=5, priority=3, actor="alice")
+    high = api.create_issue("checkout", "task", "C", component="backend",
+                            estimate_minutes=5, priority=1, actor="alice")
+
+    dev_pickup_hook(api, [_member("alice", DEFAULT)], "checkout")(Simulation(env))
+
+    assert api.search(assignee="alice")[0].id == high.id
+    assert api.get_issue(low.id).assignee_id is None
+
+
+def test_dependency_blind_works_a_blocked_issue(env: Env) -> None:
+    # Item 3: ignoring dependencies, the NPC picks up and finishes a blocked issue
+    # whose blocker is still open.
+    seed_cast(env.store, cast=[_member("alice", DEPENDENCY_BLIND)])
+    api = _api(env)
+    blocker = api.create_issue("checkout", "task", "Schema", estimate_minutes=5, actor="alice")
+    blocked = api.create_issue("checkout", "task", "Migration", estimate_minutes=5,
+                               assignee="alice", depends_on=[blocker.id], actor="alice")
+    assert api.get_issue(blocked.id).status == "blocked"
+
+    Simulation(env).run(on_tick=assignee_pickup_hook(api, ["alice"], "checkout"))
+
+    assert api.get_issue(blocked.id).status == "done"  # worked despite the open blocker
+    assert api.get_issue(blocker.id).status == "todo"  # nobody worked the blocker
+
+
+def test_perfect_prioritizes_the_blocker(env: Env) -> None:
+    # Item 4: the perfect persona prefers the issue that unblocks the most work,
+    # even when a rival has a better raw priority.
+    seed_cast(env.store, cast=[_member("alice", PERFECT)])
+    api = _api(env)
+    quick = api.create_issue("checkout", "task", "Quick win", component="backend",
+                             estimate_minutes=5, priority=1, actor="alice")
+    blocker = api.create_issue("checkout", "task", "Foundation", component="backend",
+                               estimate_minutes=5, priority=2, actor="alice")
+    api.create_issue("checkout", "task", "Downstream", component="backend",
+                     estimate_minutes=5, depends_on=[blocker.id], actor="alice")
+
+    dev_pickup_hook(api, [_member("alice", PERFECT)], "checkout")(Simulation(env))
+
+    assert api.search(assignee="alice")[0].id == blocker.id  # blocker beats the higher-priority quick win
+    assert api.get_issue(quick.id).assignee_id is None
