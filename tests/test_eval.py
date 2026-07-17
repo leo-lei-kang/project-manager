@@ -13,7 +13,7 @@ from pm.jira.repository import JiraRepository
 from pm.npc.persona import PERFECT
 from pm.scenarios import runner, team_no_jira, two_engineers
 from pm.scenarios.two_engineers import PROJECT_ID, build
-from pm.world.models import Person, Project
+from pm.world.models import Person, Project, Task
 
 EXPECTED_COUNTS = {"alice": 8, "clare": 8}
 
@@ -76,10 +76,89 @@ def test_notes_project_not_done_despite_empty_board(tmp_path):
     assert report.source == "notes"
     assert (report.done_tasks, report.total_tasks) == (15, 25)
     assert not report.goal_accomplished
+    # Notes hours come from the notes' own estimates (carried into the task
+    # table by the kickoff payload); 25 tasks = 2220 min per DRI x 5.
+    assert report.total_notes_minutes == 5 * 2220
+    assert 0 < report.done_notes_minutes < report.total_notes_minutes
+    assert "Notes tasks done:" in format_report(report)
     # The board holds only the low-priority backlog epic (10 x 4h), which the
     # otherwise board-idle members finish — the project itself never reaches it.
     assert report.closed_jira_minutes == report.total_jira_minutes == 2400
     assert len(report.remaining) == 10 and "NOTES-25" in {t.id for t in report.remaining}
+    # Unmanaged run: nobody filed the notes tasks, and the backlog tickets
+    # (different titles) match none of them.
+    assert len(report.reconciliation) == 25
+    assert all(r.jira_key is None for r in report.reconciliation)
+    assert (report.notes_filed, report.notes_status_matched) == (0, 0)
+    # Every board ticket sits under the backlog epic — no orphan row.
+    assert all(e.id for e in report.epics)
+    # Members really work their notes queues (time-burning activities with no
+    # board writes): by Friday each has three done and the fourth in flight,
+    # dispatched in numeric queue order.
+    import json as _json
+    rows = env.store.db.query_all(
+        "SELECT attendees_json, params_json, state FROM activity "
+        "WHERE kind = 'jira_work' AND params_json LIKE '%notes_id%' ORDER BY id")
+    assert len(rows) == 20 and sum(1 for r in rows if r["state"] == "done") == 15
+    bob = [_json.loads(r["params_json"])["notes_id"] for r in rows
+           if _json.loads(r["attendees_json"]) == ["bob"]]
+    assert bob == ["NOTES-1", "NOTES-7", "NOTES-8", "NOTES-9"]
+    env.close()
+
+
+def test_reconciliation_matches_notes_to_board_one_by_one(tmp_path):
+    # Notes tasks pair with board tickets by normalized title (+ assignee tie
+    # break); statuses are compared with jira in_review counting as in_progress.
+    env = Env.make(run_id="eval-recon", root=tmp_path)
+    env.store.add_project(Project(id="MT", name="MT"))
+    for pid in ("alice", "bob"):
+        env.store.add_person(Person(id=pid, name=pid))
+    repo = JiraRepository(env.store)
+    repo.ensure_schema()
+    for tid, title, dri, status in (
+        ("NOTES-1", "Build ingest", "alice", "done"),
+        ("NOTES-2", "Ship viewer", "bob", "in_progress"),
+        ("NOTES-3", "A11y review", "bob", "todo"),
+        ("NOTES-4", "Search indexing", "alice", "in_progress"),
+    ):
+        env.store.upsert_task(Task(id=tid, title=title, dri_id=dri, status=status))
+    # NOTES-1 filed, status agrees; NOTES-2 filed (normalized title), status
+    # WRONG; NOTES-3 never filed; NOTES-4 filed, in_review counts as
+    # in_progress; MT-9 is unrelated backlog and must match nothing.
+    for key, title, status, assignee in (
+        ("MT-1", "Build ingest", "done", "alice"),
+        ("MT-2", "ship  VIEWER", "todo", "bob"),
+        ("MT-4", "Search indexing", "in_review", "alice"),
+        ("MT-9", "Refactor retry helpers", "done", "alice"),
+    ):
+        repo.add_issue(Issue(id=key, project_id="MT", issue_type="task",
+                             title=title, status=status, assignee_id=assignee,
+                             estimate_minutes=60))
+    report = evaluate(env.store)
+
+    rows = {r.notes_id: r for r in report.reconciliation}
+    assert rows["NOTES-1"].jira_key == "MT-1" and rows["NOTES-1"].status_match
+    assert rows["NOTES-2"].jira_key == "MT-2" and not rows["NOTES-2"].status_match
+    assert rows["NOTES-3"].jira_key is None and not rows["NOTES-3"].status_match
+    assert rows["NOTES-4"].jira_key == "MT-4" and rows["NOTES-4"].status_match
+    assert "MT-9" not in {r.jira_key for r in report.reconciliation}
+    assert (report.notes_filed, report.notes_status_matched) == (3, 2)
+
+    # The four filed tickets sit under no epic — they get a synthetic
+    # epic-progress row (MT-1 and MT-9 done of the four), listing each ticket.
+    orphans = next(e for e in report.epics if e.id == "")
+    assert (orphans.done_tasks, orphans.total_tasks) == (2, 4)
+    assert [t.id for t in orphans.tasks] == ["MT-1", "MT-2", "MT-4", "MT-9"]
+
+    text = format_report(report)
+    assert "Tasks without an epic: 2/4" in text
+    assert "filed 3/4" in text and "statuses agree 2/4" in text
+    # every notes task gets its own mapping line, matched or not
+    assert "NOTES-1" in text and "-> MT-1" in text
+    assert "NOTES-3" in text and "not filed" in text
+    assert "NOTES-2" in text and "notes=in_progress board=todo" in text and "MISMATCH" in text
+    assert "NOTES-4" in text and "-> MT-4" in text
+    assert to_dict(report)["reconciliation"][0]["notes_id"] == "NOTES-1"
     env.close()
 
 

@@ -277,6 +277,22 @@ def test_completion_hook_fires_at_meeting_end(env):
 # -- idle-filler -------------------------------------------------------------
 
 
+def test_default_coffee_filler_breaks_idle_people_on_a_cadence(env):
+    # The engine installs coffee_filler by default: an idle person takes a
+    # 10-minute break, then not another until the 2-hour cadence elapses.
+    env.engine.advance(1)
+    brk = env.engine.activities.started_for("priya")
+    assert brk is not None and brk.kind == "coffee_break"
+    assert brk.duration_needed == 10
+
+    env.engine.advance(10)                     # break done at tick 11
+    assert env.engine.activities.started_for("priya") is None
+    env.engine.advance(119)                    # tick 130: cadence not yet elapsed
+    assert env.engine.activities.started_for("priya") is None
+    env.engine.advance(1)                      # tick 131: 120 min since last break
+    assert env.engine.activities.started_for("priya").kind == "coffee_break"
+
+
 def test_idle_filler_enqueues_a_break(tmp_path):
     e = Env.make(run_id="idle", seed=1, root=tmp_path)
     e.store.add_person(Person(id="priya", name="priya"))
@@ -289,3 +305,15 @@ def test_idle_filler_enqueues_a_break(tmp_path):
     e.engine.advance(1)                               # tick calls the filler
     assert e.engine.activities.started_for("priya").kind == "coffee_break"
     e.close()
+
+
+def test_coffee_breaks_cap_at_three_per_day(env):
+    # A fully idle person over one workday: the 120-min cadence would allow a
+    # 4th break, but the daily cap stops at 3.
+    env.engine.advance(480)  # Monday, 09:00 -> 17:00
+    breaks = env.store.db.query_all(
+        "SELECT started_tick FROM activity WHERE kind = 'coffee_break' "
+        "AND attendees_json LIKE '%priya%' AND started_tick < 480 ORDER BY started_tick")
+    ticks = [r["started_tick"] for r in breaks]
+    assert len(ticks) == 3
+    assert all(b - a >= 120 for a, b in zip(ticks, ticks[1:]))  # cadence intact

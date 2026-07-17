@@ -6,8 +6,10 @@ as a :data:`~pm.npc.persona.FREE_SPIRIT` — picking tickets at random, ignoring
 priority — so backlog work displaces project tasks and the high-priority project
 is at risk of being left over.
 
-The agent-under-test (``pm``) is an **LLM** acting *during* the run: every four
-sim-hours the review hook (:func:`pm.agent.hook.llm_review_hook`) hands the model
+The agent-under-test (``pm``) is an **LLM** acting *during* the run: the review
+hook (:func:`pm.agent.hook.llm_review_hook`) fires once a day (09:00), after
+each meeting, and when a Slack message names the PM — xavier (the CTO) pushes
+for a status update daily at 16:00. Each review hands the model
 the agent tools; it reads the board and may post one short ``#eng`` message using
 its two levers (naming a person closes their in-review work; "please pick up <KEY>"
 preempts the assignee onto that ticket, resuming the dropped one afterwards —
@@ -34,14 +36,18 @@ from pm.env.environment import RUNS_DIR, Env
 from pm.npc.cast import CAST as _FULL_CAST
 from pm.npc.cast import seed_cast, with_personas
 from pm.npc.persona import FREE_SPIRIT, Persona
+from pm.scenarios.runner import schedule_cxo_pushes
 from pm.scenarios.single_engineer import PROJECT_ID, _seed_board
+from pm.sim.clock import MINUTES_PER_WORKDAY
 
 if TYPE_CHECKING:
     from pm.sim.simulation import Simulation
 
 SCENARIO = "single_engineer_with_agent"
 CHANNEL = "eng"
-REVIEW_PERIOD = 240  # review every four sim-hours (60 min * 4)
+# One cadence review per workday (09:00); meetings ending and Slack messages
+# naming the PM (e.g. xavier's daily 16:00 status push) trigger extra reviews.
+REVIEW_PERIOD = MINUTES_PER_WORKDAY
 DEFAULT_MODEL = "anthropic/claude-opus-4.8"
 
 PROMPT = (
@@ -53,12 +59,15 @@ PROMPT = (
     "them drop their current ticket and work yours first (the dropped ticket "
     "resumes afterwards). If a high-priority ticket is open and not "
     "being worked next, post ONE short message using a lever; if nothing needs "
-    "steering, post nothing. Then reply with a one-line summary and no tool call."
+    "steering, post nothing. When a stakeholder asks you for a status update in "
+    "Slack, reply in the channel with a brief, concrete status. Then reply with "
+    "a one-line summary and no tool call."
 )
 
-# alice (the implementer) + the pm agent (the Slack sender). MEMBERS drives the
-# pickup hook; the agent has works=False so the pickup hook skips it.
-CAST = [c for c in _FULL_CAST if c.id in ("alice", "agent")]
+# alice (the implementer) + the pm agent (the Slack sender) + xavier (the CxO
+# who pushes for a daily status). MEMBERS drives the pickup hook; the agent and
+# xavier have works=False so the pickup hook skips them.
+CAST = [c for c in _FULL_CAST if c.id in ("alice", "agent", "xavier")]
 MEMBERS = [c.id for c in CAST if c.kind == "member"]
 
 
@@ -88,6 +97,7 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
     env.store.db.execute(
         "INSERT INTO channel (id, name, kind) VALUES (?, ?, 'channel')", (CHANNEL, CHANNEL))
     _seed_board(env)
+    schedule_cxo_pushes(env, CHANNEL)
     env.store.db.backup_to(Env.seed_path(run_id, root))
     return env
 
@@ -95,4 +105,4 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
 if __name__ == "__main__":
     build()
     print(f"Built scenario {SCENARIO!r} at runs/{SCENARIO}/ (a free-spirit engineer "
-          "while the LLM pm agent reviews the board every four sim-hours).")
+          "while the LLM pm agent reviews daily, after meetings, and on mentions).")

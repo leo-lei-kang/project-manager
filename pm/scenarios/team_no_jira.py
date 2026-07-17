@@ -10,9 +10,12 @@ and five haven't started, while the project has never reached the Jira board.
 
 The board is not empty, though: it holds only the low-priority "Engineering
 backlog" epic (ten 4-h tickets, two per member), which the pickup hook happily
-dispatches and finishes. The trap for a PM: ``read_jira_board`` shows a
-busy-and-green backlog board; ``read_transcripts`` (and the ``task`` table)
-tell the real story.
+dispatches and finishes. The members also really *work* their notes queues
+(:func:`tick_hook` dispatches each DRI's next notes task as a time-burning
+activity with no board writes — statuses stay scripted), so the week's
+calendars are full of project work the board never sees. The trap for a PM:
+``read_jira_board`` shows a busy-and-green backlog board;
+``read_transcripts`` (and the ``task`` table) tell the real story.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from pm.npc.cast import seed_cast
 from pm.scenarios.project_board import PROJECT_ID as PROJECT_ID
 from pm.scenarios.project_board import seed_backlog_epic, seed_project_board
 from pm.sim.clock import MINUTES_PER_WORKDAY
-from pm.sim.events import MeetingEvent
+from pm.sim.events import MeetingEvent, OOOEvent
 from pm.transcript import (
     STANDUP_DAYS,
     brief_source,
@@ -60,6 +63,44 @@ for _day in range(1, STANDUP_DAYS):
         + [{"id": t, "status": "in_progress"} for t in _QUEUE_BY_DAY[_day - 1]])
 
 
+# Each member's notes queue in numeric order (the scripted standup order),
+# with estimates from the project doc — what they actually spend the week on.
+_NOTES_QUEUES: dict[str, list[tuple[str, int]]] = {}
+for _t in sorted(project_tasks(), key=lambda t: int(t["id"].rsplit("-", 1)[1])):
+    _NOTES_QUEUES.setdefault(_t["dri_id"], []).append(
+        (_t["id"], int(_t["estimate_minutes"])))
+
+_KICKOFF_END = 180  # Mon 12:00 — the tasks exist (in the notes) from here
+
+
+def tick_hook(env: Env) -> None:
+    """Dispatch each member's next notes task as real (time-burning) work.
+
+    Once the kickoff has established the plan, every member works their notes
+    queue one task at a time as ``jira_work`` activities with no ``issue_key``
+    — they occupy the calendar without touching the board; the *statuses*
+    stay driven by the scripted standup payloads. Stateless: "next" is the
+    count of notes activities ever created for the member.
+    """
+    now = env.clock.now()
+    if now < _KICKOFF_END:
+        return
+    for pid, queue in _NOTES_QUEUES.items():
+        rows = env.store.db.query_all(
+            "SELECT state FROM activity WHERE kind = 'jira_work' "
+            "AND params_json LIKE '%notes_id%' AND attendees_json LIKE ?",
+            (f'%"{pid}"%',))
+        if any(r["state"] not in ("done", "cancelled") for r in rows):
+            continue  # one notes task in flight at a time
+        if len(rows) >= len(queue):
+            continue  # queue exhausted
+        task_id, minutes = queue[len(rows)]
+        env.store.log_event(now, actor=pid, kind="npc.pickup",
+                            payload={"issue_key": task_id})
+        env.engine.activities.request(
+            "jira_work", [pid], minutes, now, params={"notes_id": task_id})
+
+
 def _schedule_meetings(env: Env) -> None:
     """Monday kickoff (project details + full breakdown) + Tue-Fri standups."""
     for day in range(STANDUP_DAYS):
@@ -82,6 +123,13 @@ def _schedule_meetings(env: Env) -> None:
         env.engine.schedule(MeetingEvent(
             owner_id="alice", start_tick=day * MINUTES_PER_WORKDAY + 120,
             duration=60 if kickoff else 30, payload=payload))
+
+    # David is out Friday afternoon (13:00-17:00). Kept clear of the 11:00
+    # standup: a meeting an OOO overlaps is skipped for everyone (meetings
+    # never move), and Friday's standup carries the day's updates/transcript.
+    env.engine.schedule(OOOEvent(
+        owner_id="david", start_tick=4 * MINUTES_PER_WORKDAY + 240, duration=240,
+        payload={"reason": "PTO"}))
 
 
 def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,

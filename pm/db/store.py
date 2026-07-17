@@ -506,13 +506,14 @@ class Store:
         """Create or update an informal task (written when a meeting ends)."""
         self.db.execute(
             "INSERT OR REPLACE INTO task (id, title, dri_id, status, "
-            "source_meeting_id, created_tick, updated_tick) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "estimate_minutes, source_meeting_id, created_tick, updated_tick) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.id,
                 task.title,
                 task.dri_id,
                 task.status,
+                task.estimate_minutes,
                 task.source_meeting_id,
                 task.created_tick,
                 task.updated_tick,
@@ -528,6 +529,9 @@ class Store:
                 title=r["title"],
                 dri_id=r["dri_id"],
                 status=r["status"],
+                # Tolerate rows from databases created before the column existed.
+                estimate_minutes=(r["estimate_minutes"]
+                                  if "estimate_minutes" in r.keys() else 0),
                 source_meeting_id=r["source_meeting_id"],
                 created_tick=r["created_tick"],
                 updated_tick=r["updated_tick"],

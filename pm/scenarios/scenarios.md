@@ -52,7 +52,9 @@ works first, preempting their current ticket. One message can carry directives
 for several people; each takes effect on its addressee's own read. These are the levers a PM agent steers with (the agent's only
 *action* tool is `send_slack`). In `single_engineer_with_agent`,
 `two_engineers_with_agent`, and `team_no_jira_with_agent` the PM is
-an **LLM** reviewing the run every four sim-hours through those tools — a
+an **LLM** reviewing the run through those tools — once a day (09:00) by
+default, plus after every meeting and whenever a Slack message names it
+(xavier, the CTO, pushes for a status update daily at 16:00) — a
 scenario may expose
 `agent_review_hook`, which `pm sim` composes into the run automatically. Under
 `pm sim` the hook needs `OPENROUTER_API_KEY` in `.env` (model from

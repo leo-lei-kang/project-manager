@@ -1,9 +1,17 @@
 """The in-sim LLM review hook — the PM agent acting *inside* a simulated week.
 
 :func:`llm_review_hook` builds a per-tick hook (the ``agent_review_hook``
-contract composed by :func:`pm.scenarios.runner.drive`): every ``period`` ticks
-it runs one :class:`~pm.agent.openrouter_agent.LLMAgent` loop over the agent's
-tools, bound to the run's ``Env``. Two run-integration rules:
+contract composed by :func:`pm.scenarios.runner.drive`) that runs one
+:class:`~pm.agent.openrouter_agent.LLMAgent` loop over the agent's tools,
+bound to the run's ``Env``, whenever a trigger fires:
+
+  * **cadence** — every ``period`` ticks (default once per workday, at 09:00),
+  * **meeting_end** — a meeting completing (its transcript just appeared),
+  * **slack** — someone else's Slack message naming the agent landing (e.g.
+    the CxO's daily "PM, status update?" push).
+
+Each firing logs an ``agent.review.trigger`` event with its reason. Two
+run-integration rules:
 
   * **Clock-safe sends.** Inside the sim loop, ``AgentTools.send_slack`` would
     advance the clock mid-tick (it routes through ``perform_action``), so the
@@ -32,6 +40,7 @@ from pm.agent.openrouter_agent import (
 from pm.agent.tools import AgentTools
 from pm.env.environment import Env
 from pm.exceptions import ConfigurationError
+from pm.sim.clock import MINUTES_PER_WORKDAY
 from pm.sim.events import EventType, SlackSendEvent
 
 if TYPE_CHECKING:
@@ -78,13 +87,15 @@ def _default_client() -> Any:
 
 def llm_review_hook(
     env: Env, *, model: str, prompt: str, client: Any = None,
-    period: int = 240, max_steps: int = 6,
+    period: int = MINUTES_PER_WORKDAY, max_steps: int = 6,
 ) -> Callable[["Simulation"], None]:
-    """Build a hook that runs the LLM agent every ``period`` ticks, logging as it goes.
+    """Build a hook that runs the LLM agent whenever a review trigger fires.
 
-    A meeting ending also triggers an immediate review — its transcript becomes
-    available at that moment, so the agent reads it right away instead of
-    waiting for the next boundary.
+    Triggers, checked each tick: the ``period`` cadence (default one review per
+    workday, at 09:00); a meeting ending (its transcript becomes available at
+    that moment, so the agent reads it right away); and a Slack message from
+    someone else naming the agent completing (the CxO's daily status push).
+    Each firing logs an ``agent.review.trigger`` event with its ``reason``.
 
     ``client`` is any OpenAI-compatible async client (tests inject a fake);
     ``None`` builds the OpenRouter client from ``.env`` on first use. Every entry
@@ -94,6 +105,14 @@ def llm_review_hook(
     tools = _HookSafeTools(env)
     backend = InProcessBackend(tools)
     log = AgentLog(env.root / env.run_id / agent_log_name(model))
+    agent_person = env.store.get_person(tools.actor)
+
+    def _names_agent(body: str) -> bool:
+        # Mirrors pm.sim.npc._named: case-insensitive substring of name or id.
+        low = body.lower()
+        if agent_person is not None and agent_person.name.lower() in low:
+            return True
+        return tools.actor.lower() in low
 
     def stamped(entry: dict[str, Any]) -> None:
         tick = env.clock.now()
@@ -104,13 +123,25 @@ def llm_review_hook(
     def hook(sim: "Simulation") -> None:
         nonlocal client
         now = sim.clock.now()
-        meeting_ended = any(
-            e.type is EventType.MEETING for e in sim.store.events_done_at(now))
-        if now % period != 0 and not meeting_ended:
+        done = sim.store.events_done_at(now)
+        if now % period == 0:
+            reason = "cadence"
+        elif any(e.type is EventType.MEETING for e in done):
+            reason = "meeting_end"
+        elif any(e.type is EventType.SLACK_SEND and e.owner_id != tools.actor
+                 and _names_agent(e.payload.get("body", "")) for e in done):
+            reason = "slack"
+        else:
             return
+        sim.store.log_event(now, actor="agent", kind="agent.review.trigger",
+                            payload={"reason": reason})
         if client is None:
             client = _default_client()
         agent = LLMAgent(client, model, backend, max_steps=max_steps, log=stamped)
-        asyncio.run(agent.run(prompt))
+        goal = prompt
+        memory = tools.memory_text()
+        if memory:
+            goal += f"\n\n## Your memory from earlier reviews\n{memory}"
+        asyncio.run(agent.run(goal))
 
     return hook

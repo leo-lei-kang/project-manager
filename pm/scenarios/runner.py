@@ -17,11 +17,31 @@ from typing import TYPE_CHECKING, Any
 from pm.jira.api import JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.persona import PRESETS, from_person
-from pm.sim.npc import WorkDriver
+from pm.sim.clock import MINUTES_PER_WORKDAY, WORKDAYS
+from pm.sim.events import SlackSendEvent
+from pm.sim.npc import WorkDriver, compose
 from pm.sim.simulation import RunSummary, Simulation
 
 if TYPE_CHECKING:
     from pm.env.environment import Env
+
+CXO_PUSH_TICK = 420  # 16:00 — the daily status ping lands before end of day
+
+
+def schedule_cxo_pushes(env: "Env", channel: str, *, sender: str = "xavier") -> None:
+    """Schedule the CxO's daily status push: one Slack ping to the PM per workday.
+
+    The body names the agent ("PM"), so when the message lands it triggers a
+    review (see :func:`pm.agent.hook.llm_review_hook`) and the PM is expected
+    to reply in the channel. ``sender`` must be a seeded person.
+    """
+    for day in range(WORKDAYS):
+        env.engine.schedule(SlackSendEvent(
+            owner_id=sender, start_tick=day * MINUTES_PER_WORKDAY + CXO_PUSH_TICK,
+            payload={"message_id": f"cxo-update-{day}", "channel_id": channel,
+                     "body": "PM, please post a status update on the project: "
+                             "what shipped, what's at risk, what needs unblocking."},
+        ))
 
 
 def _hours(minutes: int) -> str:
@@ -93,14 +113,19 @@ def drive(env: "Env", module: Any) -> RunSummary:
     """Run ``module``'s week on ``env`` (kickoff sweep + optional PM); return the summary.
 
     ``module`` must expose ``MEMBERS`` and ``PROJECT_ID``; it may expose
-    ``agent_review_hook(env)`` to add a PM review hook.
+    ``agent_review_hook(env)`` to add a PM review hook and ``tick_hook(env)``
+    for scenario-specific per-tick behavior (e.g. team_no_jira's notes work).
     """
     api = JiraApi(JiraRepository(env.store), env.engine)
     driver = WorkDriver(api, module.MEMBERS, module.PROJECT_ID)
     env.engine.activities.on_activity_done = driver.on_activity_done
     env.engine.on_event_done = driver.on_event_done
     review = getattr(module, "agent_review_hook", None)
-    review_hook = review(env) if review is not None else None
+    scenario_tick = getattr(module, "tick_hook", None)
+    hooks = [h for h in (review(env) if review is not None else None,
+                         (lambda sim: scenario_tick(env)) if scenario_tick else None)
+             if h is not None]
+    on_tick = hooks[0] if len(hooks) == 1 else (compose(*hooks) if hooks else None)
     sim = Simulation(env)
     driver.sweep(env.engine)  # kickoff: everyone picks their first ticket
-    return sim.run(on_tick=review_hook)  # once the week ends, the agent is done
+    return sim.run(on_tick=on_tick)  # once the week ends, the agent is done

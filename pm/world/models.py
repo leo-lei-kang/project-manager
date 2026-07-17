@@ -95,6 +95,7 @@ class Task(BaseModel):
     title: str
     dri_id: str | None = None  # the directly responsible individual
     status: TaskStatus = "todo"
+    estimate_minutes: int = 0  # from the notes' estimate column; 0 = unknown
     source_meeting_id: str | None = None
     created_tick: int = 0
     updated_tick: int = 0

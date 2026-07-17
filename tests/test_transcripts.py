@@ -71,8 +71,33 @@ def test_agent_reads_transcripts_with_meeting_context(tmp_path):
     # since_tick windows the list; the full body comes from read_transcript
     assert [t["meeting_id"] for t in tools.read_transcripts(since_tick=181)] == [
         "no-jira-1", "no-jira-2", "no-jira-3", "no-jira-4"]
-    full = tools.read_transcript("no-jira-0")
-    assert project_brief() in full["body"]  # the kickoff embeds the project doc
+    # After the week, only Friday's transcript is same-day readable; older ones
+    # refuse with an error payload (the agent banks takeaways in memory instead).
+    stale = tools.read_transcript("no-jira-0")
+    assert "today" in stale["error"] and "body" not in stale
+    full = tools.read_transcript("no-jira-4")
+    assert full["title"] == "Daily standup" and full["body"]
+    # A transcript reads once; the second attempt points at memory.
+    again = tools.read_transcript("no-jira-4")
+    assert "already read" in again["error"]
+    assert next(t["read"] for t in tools.read_transcripts()
+                if t["meeting_id"] == "no-jira-4")
+    env.close()
+
+
+def test_david_is_ooo_friday_afternoon(tmp_path):
+    # The team week includes david's Friday 13:00-17:00 OOO, clear of the
+    # 11:00 standup (an overlapped meeting would be skipped for everyone).
+    env = team_no_jira.build(run_id="nj-ooo", root=tmp_path)
+    ooo = env.store.db.query_one(
+        "SELECT owner_id, start_tick, duration, status FROM event WHERE type = 'ooo'")
+    assert ooo["owner_id"] == "david"
+    assert ooo["start_tick"] == 4 * 480 + 240 and ooo["duration"] == 240
+    assert ooo["status"] == "pending"  # not skipped/shifted by the calendar
+    friday_standup = env.store.db.query_one(
+        "SELECT status, start_tick FROM event WHERE type = 'meeting' "
+        "AND json_extract(payload_json, '$.meeting_id') = 'no-jira-4'")
+    assert friday_standup["status"] == "pending"  # still held
     env.close()
 
 

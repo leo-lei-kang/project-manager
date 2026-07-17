@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS task (
     dri_id            TEXT    REFERENCES person(id) ON DELETE SET NULL,
     status            TEXT    NOT NULL DEFAULT 'todo'
                       CHECK (status IN ('todo', 'in_progress', 'done')),
+    estimate_minutes  INTEGER NOT NULL DEFAULT 0,
     source_meeting_id TEXT,
     created_tick      INTEGER NOT NULL DEFAULT 0,
     updated_tick      INTEGER NOT NULL DEFAULT 0

@@ -26,7 +26,7 @@ from collections.abc import Callable
 
 from pm.db.store import Store
 from pm.sim import calendar
-from pm.sim.activity import ActivityManager
+from pm.sim.activity import ActivityManager, coffee_filler
 from pm.sim.clock import SimClock
 from pm.sim.events import Event, EventStatus
 
@@ -37,8 +37,8 @@ class Engine:
         self.clock = clock or SimClock(store)
         # Resume the counter past any events already persisted, so seq is never reused.
         self._next_seq = store.max_event_seq() + 1
-        # Per-NPC durative-work scheduler; a no-op until activities are requested.
-        self.activities = ActivityManager(self)
+        # Per-NPC durative-work scheduler; idle people fill gaps with coffee breaks.
+        self.activities = ActivityManager(self, idle_filler=coffee_filler)
         # Completion hook: fired once per finished event from step(), after the
         # completion loop. The driver installs NPC reactions here.
         self.on_event_done: Callable[["Engine", Event], None] | None = None

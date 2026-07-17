@@ -147,16 +147,6 @@ _AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
           "status, assignee, priority, estimates, depends_on) and a status breakdown "
           "covering all issues.",
           {"project_id": {"type": "string"}}, ["project_id"]),
-    _tool("create_jira_ticket", "File a Jira issue — e.g. a task from meeting notes "
-          "that never reached the board. Returns the created issue with its key.",
-          {"project_id": {"type": "string"},
-           "title": {"type": "string"},
-           "estimate_minutes": {"type": "integer"},
-           "assignee": {"type": "string", "description": "Person id, e.g. alice."},
-           "priority": {"type": "integer",
-                        "description": "1 = highest; default 2."},
-           "description": {"type": "string"}},
-          ["project_id", "title"]),
     _tool("update_jira_status", "Move an issue to a status (todo, in_progress, "
           "in_review, done, cancelled), walking the legal workflow path — use it to "
           "make the board reflect reality, e.g. notes-tracked work already underway "
@@ -185,8 +175,16 @@ _AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
           {"since_tick": {"type": "integer",
                           "description": "Only transcripts available at or after this tick."}},
           []),
-    _tool("read_transcript", "Read one meeting's full transcript body by meeting_id.",
+    _tool("read_transcript", "Read one meeting's full transcript body by meeting_id. "
+          "Each transcript can be read ONCE, and only on the day it appeared — "
+          "append the takeaways to memory right away (append_memory); your memory "
+          "is shown to you at every review.",
           {"meeting_id": {"type": "string"}}, ["meeting_id"]),
+    _tool("append_memory", "Append a durable note to your memory file. Whatever you "
+          "store here (transcript takeaways, decisions, filed ticket keys) is shown "
+          "back to you at every future review — bank facts instead of re-reading "
+          "sources.",
+          {"note": {"type": "string"}}, ["note"]),
 ]
 
 

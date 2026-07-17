@@ -181,6 +181,38 @@ ACTIVITY_KINDS: dict[str, ActivityKind] = {
     "coffee_break": ActivityKind("coffee_break", 40),
 }
 
+COFFEE_BREAK_MINUTES = 10
+COFFEE_CADENCE_MINUTES = 120  # an idle person breaks at most once per 2 hours
+MAX_COFFEE_BREAKS_PER_DAY = 3
+
+
+def coffee_filler(mgr: "ActivityManager", now: int) -> None:
+    """Default idle filler: idle people take a 10-minute coffee break.
+
+    Runs every tick (see :meth:`ActivityManager.tick`); a person qualifies when
+    they are fully idle (nothing started, backlogged, or interrupted), their
+    last break ended at least ``COFFEE_CADENCE_MINUTES`` ago, and they have had
+    fewer than ``MAX_COFFEE_BREAKS_PER_DAY`` today — so genuinely workless
+    people show occasional breaks, not wall-to-wall coffee. Agents (the PM
+    under test) never take breaks.
+    """
+    from pm.sim.clock import MINUTES_PER_WORKDAY
+
+    day_start = (now // MINUTES_PER_WORKDAY) * MINUTES_PER_WORKDAY
+    for person in mgr._store.list_people():
+        if person.is_agent or not mgr.is_idle(person.id):
+            continue
+        row = mgr._store.db.query_one(
+            "SELECT MAX(done_tick) AS t, "
+            "       COUNT(CASE WHEN started_tick >= ? THEN 1 END) AS today "
+            "FROM activity WHERE kind = 'coffee_break' AND attendees_json LIKE ?",
+            (day_start, f'%"{person.id}"%'))
+        last_end = row["t"] if row and row["t"] is not None else -COFFEE_CADENCE_MINUTES
+        today = row["today"] if row else 0
+        if now - last_end >= COFFEE_CADENCE_MINUTES and today < MAX_COFFEE_BREAKS_PER_DAY:
+            mgr.request("coffee_break", [person.id], COFFEE_BREAK_MINUTES, now)
+
+
 _DDL = (
     """
     CREATE TABLE IF NOT EXISTS activity (

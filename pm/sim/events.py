@@ -377,6 +377,9 @@ class MeetingEvent(Event):
                     title=entry.get("title", existing.title if existing else entry["id"]),
                     dri_id=entry.get("dri_id", existing.dri_id if existing else None),
                     status=entry.get("status", existing.status if existing else "todo"),
+                    estimate_minutes=int(entry.get(
+                        "estimate_minutes",
+                        existing.estimate_minutes if existing else 0) or 0),
                     source_meeting_id=existing.source_meeting_id if existing else p["meeting_id"],
                     created_tick=existing.created_tick if existing else now,
                     updated_tick=now,

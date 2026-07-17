@@ -23,6 +23,7 @@ from pm.exceptions import ToolError
 from pm.jira.api import ALLOWED_TRANSITIONS, JiraApi
 from pm.jira.repository import JiraRepository
 from pm.npc.cast import AGENT
+from pm.sim.clock import MINUTES_PER_WORKDAY, WEEK_END_TICK
 from pm.sim.events import SlackSendEvent
 
 
@@ -36,6 +37,10 @@ class AgentTools:
         repo = JiraRepository(env.store)
         repo.ensure_schema()
         self.jira = JiraApi(repo, env.engine)
+        # Transcripts already consumed this run — each may be read only once;
+        # the agent keeps what matters in its memory file instead.
+        self._transcripts_read: set[str] = set()
+        self.memory_path = env.root / env.run_id / "memory.md"
 
     # -- Slack ---------------------------------------------------------------
 
@@ -184,11 +189,17 @@ class AgentTools:
                 "start_tick": meeting.start_tick if meeting else None,
                 "available_tick": t.available_tick,
                 "preview": first_line[:120],
+                "read": t.meeting_id in self._transcripts_read,
             })
         return out
 
     def read_transcript(self, meeting_id: str) -> dict[str, Any]:
         """Return one meeting's full transcript body (no sim-time cost).
+
+        Each transcript may be read **once**, and only on the sim-day it became
+        available — the agent is expected to bank what matters in its memory
+        file (:meth:`append_memory`) instead of re-reading. Violations return
+        an ``error`` payload the model can act on rather than raising.
 
         Logs an ``agent.read_transcript`` timeline entry carrying the
         transcript's ``source`` (the authored file path(s) behind the body,
@@ -197,6 +208,17 @@ class AgentTools:
         now = self.env.clock.now()
         for t in self.env.store.list_transcripts(available_by=now):
             if t.meeting_id == meeting_id:
+                if meeting_id in self._transcripts_read:
+                    return {"meeting_id": meeting_id, "error":
+                            "already read this run — consult your memory notes "
+                            "instead of re-reading"}
+                # Week end (tick 2400 sharp) still counts as Friday.
+                today = min(now, WEEK_END_TICK - 1) // MINUTES_PER_WORKDAY
+                if t.available_tick // MINUTES_PER_WORKDAY != today:
+                    return {"meeting_id": meeting_id, "error":
+                            "only transcripts from today may be read; earlier "
+                            "days' notes live in your memory"}
+                self._transcripts_read.add(meeting_id)
                 meeting = next(
                     (m for m in self.env.store.list_meetings() if m.id == meeting_id), None)
                 title = meeting.title if meeting else ""
@@ -216,3 +238,26 @@ class AgentTools:
             f"no available transcript for meeting {meeting_id!r} (has it ended?)",
             details={"meeting_id": meeting_id},
         )
+
+    # -- Memory ----------------------------------------------------------------
+
+    def append_memory(self, note: str) -> dict[str, Any]:
+        """Append a note to the run's ``memory.md`` (no sim-time cost).
+
+        The memory file is injected into every review's prompt, so anything
+        recorded here — transcript takeaways, decisions, filed-ticket keys —
+        survives across reviews without re-reading the sources.
+        """
+        now = self.env.clock.now()
+        self.memory_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.memory_path.open("a", encoding="utf-8") as f:
+            f.write(f"\n## tick {now}\n{note.strip()}\n")
+        self.env.store.log_event(now, actor=self.actor, kind="agent.memory",
+                                 payload={"note": note})
+        return {"stored": True, "tick": now}
+
+    def memory_text(self) -> str:
+        """The accumulated memory notes, or "" before the first append."""
+        if not self.memory_path.exists():
+            return ""
+        return self.memory_path.read_text(encoding="utf-8")

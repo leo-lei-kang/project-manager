@@ -55,7 +55,9 @@ tests/          # pytest suite covering db, sim, jira, npc, agent, env, scenario
 
 For the core mechanics — **how simulated time advances, how world state is
 stored, how events are scheduled**, and how meetings pause and resume in-progress
-work — see [`docs/architecture.md`](docs/architecture.md).
+work — see [`docs/architecture.md`](docs/architecture.md). For what the world
+model includes, why it is realistic, how evaluation works, and the challenges
+hit along the way, see [`docs/world-model.md`](docs/world-model.md).
 
 ### Schema map
 
