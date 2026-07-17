@@ -520,6 +520,13 @@ class Store:
             ),
         )
 
+    def channel_members(self, channel_id: str) -> list[str]:
+        """The channel's member ids, or ``[]`` for open channels (no rows)."""
+        rows = self.db.query_all(
+            "SELECT person_id FROM channel_member WHERE channel_id = ? "
+            "ORDER BY person_id", (channel_id,))
+        return [r["person_id"] for r in rows]
+
     def list_tasks(self) -> list[Task]:
         """All informal tasks, in id order."""
         rows = self.db.query_all("SELECT * FROM task ORDER BY id")

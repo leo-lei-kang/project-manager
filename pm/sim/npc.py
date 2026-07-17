@@ -387,25 +387,31 @@ def _named(person, low: str) -> bool:
 
 
 def _on_slack_send(engine: "Engine", event: "Event") -> None:
-    """A channel message: everyone reads it within the hour.
+    """A channel message: everyone in the channel reads it within the hour.
 
-    Every person except the sender (and agents — the PM reads the channel via
-    its ``read_slack`` tool) gets a :class:`~pm.sim.events.SlackReadEvent` at a
-    seeded-random 1–60 minutes later. The message's *effects* fire only when a
-    reader it addresses reads it (see :func:`_on_slack_read`); everyone else's
-    read is awareness only. A read that would land during a meeting or OOO
-    yields past it at schedule time (see :func:`pm.sim.calendar.reserve`). A
-    read scheduled past week end never fires — a directive sent in the last
-    hour can go unread.
+    Every channel member except the sender (and agents — the PM reads the
+    channel via its ``read_slack`` tool) gets a
+    :class:`~pm.sim.events.SlackReadEvent` at a seeded-random 1–60 minutes
+    later. A channel with no ``channel_member`` rows is open — everyone reads;
+    a membered channel (a DM, say the CxO's status pushes to the PM) fans out
+    to its members only. The message's *effects* fire only when a reader it
+    addresses reads it (see :func:`_on_slack_read`); everyone else's read is
+    awareness only. A read that would land during a meeting or OOO yields past
+    it at schedule time (see :func:`pm.sim.calendar.reserve`). A read
+    scheduled past week end never fires — a directive sent in the last hour
+    can go unread.
     """
     body = event.payload.get("body", "")
     if not body:
         return
     now = engine.clock.now()
     seed = engine.store.get_meta("seed", "0") or "0"
+    members = engine.store.channel_members(event.payload.get("channel_id", ""))
     for person in engine.store.list_people():
         if person.id == event.owner_id or person.is_agent:
             continue
+        if members and person.id not in members:
+            continue  # membered channel (e.g. a DM): outsiders never read it
         delay = random.Random(f"{seed}:{person.id}:{now}").randint(1, 60)
         engine.schedule(SlackReadEvent(
             owner_id=person.id, initiator_id=event.owner_id,

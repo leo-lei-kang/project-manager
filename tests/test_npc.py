@@ -222,6 +222,27 @@ def test_read_closes_only_the_readers_in_review(api: JiraApi, env: Env) -> None:
     assert api.get_issue(theirs.id).status == "in_review"
 
 
+def test_dm_send_schedules_reads_for_members_only(api: JiraApi, env: Env) -> None:
+    # A channel with membership rows (a DM) fans out only to its members —
+    # xavier's status push to the agent is read by nobody else.
+    env.store.db.execute(
+        "INSERT INTO channel (id, name, kind) VALUES ('dm-x-a','dm-x-a','dm')")
+    for pid in ("xavier", "agent"):
+        env.store.db.execute(
+            "INSERT INTO channel_member (channel_id, person_id) VALUES ('dm-x-a', ?)",
+            (pid,))
+
+    react(env.engine, SlackSendEvent(
+        owner_id="xavier", start_tick=0,
+        payload={"message_id": "m", "channel_id": "dm-x-a",
+                 "body": "PM, please post a status update — alice is blocked."}))
+
+    reads = env.store.db.query_all("SELECT owner_id FROM event WHERE type = 'slack.read'")
+    # sender excluded, agent excluded (reads via its review trigger): no reads,
+    # even though the body names alice — she is not in the DM.
+    assert reads == []
+
+
 def test_one_message_carries_directives_for_several_readers(api: JiraApi, env: Env) -> None:
     # One channel message can address several engineers; each directive lands
     # when ITS addressee reads — alice's read bumps only her key.

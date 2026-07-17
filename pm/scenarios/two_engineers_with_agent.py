@@ -59,8 +59,9 @@ PROMPT = (
     "being worked next, post at most ONE short message per review — everyone "
     "reads the channel, so when several people need steering put all the "
     "directives in that single message rather than sending one each; if nothing "
-    "needs steering, post nothing. When a stakeholder asks you for a status "
-    "update in Slack, reply in the channel with a brief, concrete status. Then "
+    "needs steering, post nothing. Xavier (the CTO) DMs you status pushes in "
+    "the private channel 'dm-xavier-agent' — read it with read_slack and reply "
+    "THERE with a brief, concrete status (never in the eng channel). Then "
     "reply with a one-line summary and no tool call."
 )
 
@@ -98,7 +99,7 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
     env.store.db.execute(
         "INSERT INTO channel (id, name, kind) VALUES (?, ?, 'channel')", (CHANNEL, CHANNEL))
     _seed_board(env)
-    schedule_cxo_pushes(env, CHANNEL)
+    schedule_cxo_pushes(env)
     env.store.db.backup_to(Env.seed_path(run_id, root))
     return env
 

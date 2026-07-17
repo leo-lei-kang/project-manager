@@ -26,19 +26,28 @@ if TYPE_CHECKING:
     from pm.env.environment import Env
 
 CXO_PUSH_TICK = 420  # 16:00 — the daily status ping lands before end of day
+CXO_DM = "dm-xavier-agent"  # private DM: the engineers never see (or read) it
 
 
-def schedule_cxo_pushes(env: "Env", channel: str, *, sender: str = "xavier") -> None:
-    """Schedule the CxO's daily status push: one Slack ping to the PM per workday.
+def schedule_cxo_pushes(env: "Env", *, sender: str = "xavier") -> None:
+    """Schedule the CxO's daily status push: one private DM to the PM per workday.
 
-    The body names the agent ("PM"), so when the message lands it triggers a
-    review (see :func:`pm.agent.hook.llm_review_hook`) and the PM is expected
-    to reply in the channel. ``sender`` must be a seeded person.
+    Creates the :data:`CXO_DM` channel (kind ``dm``, members = sender + the
+    agent) so the channel-read fan-out stays inside the DM — no engineer ever
+    gets a ``slack.read`` for it. The body names the agent ("PM"), so each
+    push triggers a review (see :func:`pm.agent.hook.llm_review_hook`) and the
+    PM is expected to reply in the DM. ``sender`` must be a seeded person.
     """
+    env.store.db.execute(
+        "INSERT INTO channel (id, name, kind) VALUES (?, ?, 'dm')", (CXO_DM, CXO_DM))
+    for pid in (sender, "agent"):
+        env.store.db.execute(
+            "INSERT INTO channel_member (channel_id, person_id) VALUES (?, ?)",
+            (CXO_DM, pid))
     for day in range(WORKDAYS):
         env.engine.schedule(SlackSendEvent(
             owner_id=sender, start_tick=day * MINUTES_PER_WORKDAY + CXO_PUSH_TICK,
-            payload={"message_id": f"cxo-update-{day}", "channel_id": channel,
+            payload={"message_id": f"cxo-update-{day}", "channel_id": CXO_DM,
                      "body": "PM, please post a status update on the project: "
                              "what shipped, what's at risk, what needs unblocking."},
         ))

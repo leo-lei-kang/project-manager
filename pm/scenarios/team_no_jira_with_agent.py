@@ -63,9 +63,10 @@ PROMPT = (
     "exists. If the "
     f"record also needs surfacing, post at most ONE short '{CHANNEL}' Slack "
     "message summarizing the real status (who owns what, what is done or at "
-    "risk); if nothing new has happened, post nothing. When a stakeholder asks "
-    "you for a status update in Slack, reply in the channel with a brief, "
-    "concrete status. Then reply with a one-line summary and no tool call."
+    "risk); if nothing new has happened, post nothing. Xavier (the CTO) DMs "
+    "you status pushes in the private channel 'dm-xavier-agent' — read it with "
+    "read_slack and reply THERE with a brief, concrete status (never in the "
+    "eng channel). Then reply with a one-line summary and no tool call."
 )
 
 # The five implementers + the pm agent (the Slack sender) + xavier (the CxO
@@ -103,7 +104,7 @@ def build(run_id: str = SCENARIO, *, seed: int = 42, root: Path = RUNS_DIR,
     seed_project_board(env, jira_ids=())
     seed_backlog_epic(env)
     _schedule_meetings(env)
-    schedule_cxo_pushes(env, CHANNEL)
+    schedule_cxo_pushes(env)
     env.store.db.backup_to(Env.seed_path(run_id, root))
     return env
 
